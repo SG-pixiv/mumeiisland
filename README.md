@@ -54,11 +54,11 @@ select public.set_owner_setup_key('여기에_영문숫자로_긴_키');
 ```powershell
 cd 무명섬폴더
 npx supabase login
-npx supabase link --project-ref <Supabase 프로젝트 ID>
-npx supabase secrets set ER_API_KEY=발급받은_이리_API_키
-npx supabase functions deploy er-sync --no-verify-jwt
+npx supabase secrets set ER_API_KEY=발급받은_이리_API_키 --project-ref <Supabase 프로젝트 ID>
+npx supabase functions deploy er-sync --project-ref <Supabase 프로젝트 ID> --use-api
 ```
-- `--no-verify-jwt` 를 붙여도 괜찮아요. 함수 안에서 "로그인한 관리자인지"를 직접 확인해요.
+- `--use-api` 는 Docker 없이 Supabase 서버에서 함수를 묶어 올리는 옵션이에요.
+- `supabase/config.toml` 에 `verify_jwt = false` 가 들어 있어요. 함수 안에서 "로그인한 관리자인지"를 직접 확인해요.
 - 이리 API 키는 **절대** `.env` 나 코드에 넣지 마세요. Secrets 에만 넣어요.
 
 ### 6. Vercel 배포

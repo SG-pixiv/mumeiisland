@@ -11,8 +11,8 @@
 //   ER_RANK_TEAM_MODE          솔로 랭크의 matchingTeamMode 값 (첫 테스트 후 정해요, 비워 두면 판수가 가장 많은 항목)
 //   CRON_SECRET                (선택) 매일 자동 실행할 때 x-cron-secret 헤더로 보내는 값
 //
-// 배포: npx supabase functions deploy er-sync --no-verify-jwt
-//   (권한 확인은 함수 안에서 직접 해요: 관리자 로그인 토큰 또는 CRON_SECRET)
+// 배포: npx supabase functions deploy er-sync --project-ref <프로젝트 ID> --use-api
+//   (supabase/config.toml 에 verify_jwt = false 가 있어요. 권한 확인은 함수 안에서 직접 해요: 관리자 로그인 토큰 또는 CRON_SECRET)
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { parseCharacterNames, pickCurrentSeason, syncPlayer, apiCode, type ErFetch, type ErResponse } from './lib.ts';
@@ -30,6 +30,17 @@ const cors = {
 };
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { ...cors, 'Content-Type': 'application/json; charset=utf-8' } });
+
+// Supabase 가 함수에 넣어 주는 키. 새 프로젝트는 SUPABASE_SECRET_KEYS / SUPABASE_PUBLISHABLE_KEYS (JSON, 이름 → 키),
+// 예전 프로젝트는 SUPABASE_SERVICE_ROLE_KEY / SUPABASE_ANON_KEY 라서 둘 다 읽어요.
+const projectKey = (jsonName: string, legacyName: string): string => {
+  try {
+    const keys = JSON.parse(Deno.env.get(jsonName) ?? '{}');
+    const v = keys.default ?? Object.values(keys)[0];
+    if (typeof v === 'string' && v) return v;
+  } catch { /* 형식이 다르면 예전 이름으로 */ }
+  return Deno.env.get(legacyName) ?? '';
+};
 
 let lastCall = 0;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -54,15 +65,18 @@ Deno.serve(async (req) => {
 
   try {
     const url = Deno.env.get('SUPABASE_URL')!;
-    const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const serviceKey = projectKey('SUPABASE_SECRET_KEYS', 'SUPABASE_SERVICE_ROLE_KEY');
+    const anonKey = projectKey('SUPABASE_PUBLISHABLE_KEYS', 'SUPABASE_ANON_KEY');
+    if (!serviceKey || !anonKey) return json({ error: '함수에 프로젝트 키가 없어요 (Supabase 설정 확인 필요)' }, 500);
     const authHeader = req.headers.get('Authorization') ?? '';
     const token = authHeader.replace(/^Bearer\s+/i, '');
 
-    // 매일 자동 실행(CRON_SECRET 또는 service_role)이 아니면 관리자인지 확인
+    // 매일 자동 실행(CRON_SECRET 또는 서버 키)이 아니면 관리자인지 확인
     const cronSecret = Deno.env.get('CRON_SECRET');
-    const isCron = (cronSecret && req.headers.get('x-cron-secret') === cronSecret) || token === serviceKey;
+    const isCron = (!!cronSecret && req.headers.get('x-cron-secret') === cronSecret)
+      || token === serviceKey || req.headers.get('apikey') === serviceKey;
     if (!isCron) {
+      if (!token) return json({ error: '관리자로 로그인한 뒤 다시 해 주세요' }, 401);
       const asUser = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } });
       const { data: isAdmin, error } = await asUser.rpc('is_admin');
       if (error || !isAdmin) return json({ error: '관리자만 동기화할 수 있어요' }, 403);
