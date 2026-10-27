@@ -62,7 +62,7 @@ function draw() {
       ${body()}
       <ul style="list-style: none; margin: 4px 0 0; padding: 14px 16px; width: 100%; display: grid; gap: 8px; text-align: left; background: var(--soft); border-radius: 22px; font-size: 14px; font-weight: 600">
         <li>· 선수, 내전 기록, 일정, 규정은 로그인 없이 누구나 볼 수 있어요.</li>
-        <li>· 디스코드에서는 닉네임과 사용자 ID만 받아요. 서버 목록이나 메시지는 보지 않아요.</li>
+        <li>· 디스코드에서는 닉네임, 사용자 ID, 이메일만 받아요. 서버 목록이나 메시지는 보지 않아요.</li>
         <li>· 키를 5번 틀리면 10분 동안 입력이 막혀요.</li>
       </ul>
       <a href="/" class="btn text">← 공개 페이지로 돌아가기</a>
