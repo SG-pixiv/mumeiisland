@@ -10,6 +10,7 @@ src/pages/                   페이지별 화면 코드
 src/lib/db.js                DB 접근 (Supabase 가 없으면 예시 데이터로 동작)
 supabase/migrations/         DB 테이블 · 보안 규칙 · 함수 (SQL)
 supabase/functions/er-sync/  이리 Open API 동기화 함수
+docs/ERD.md                  테이블 관계도 (GitHub 에서 그림으로 보여요)
 ```
 
 > Supabase 를 연결하기 전에는 **예시 데이터(데모 모드)** 로 모든 화면이 열려요. 배포해 보고 화면부터 확인해도 괜찮아요.
