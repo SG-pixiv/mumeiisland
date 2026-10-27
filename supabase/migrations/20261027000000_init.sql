@@ -476,3 +476,21 @@ create policy "admin write" on public.round_players for all using (public.is_adm
 create policy "admin read" on public.admins for select using (public.is_admin());
 create policy "admin read" on public.admin_keys for select using (public.is_admin());
 -- key_attempts, app_secrets: 정책 없음 = 아무도 직접 못 읽고 못 씀
+
+-- ═════════ 사이트가 쓰는 권한 ═════════
+-- "Automatically expose new tables" 를 꺼도 동작하도록 직접 열어 둬요.
+-- (실제로 누가 무엇을 읽고 쓸 수 있는지는 위의 RLS 규칙이 정해요)
+grant usage on schema public to anon, authenticated;
+grant select on all tables in schema public to anon, authenticated;
+grant insert, update, delete on all tables in schema public to authenticated;
+grant usage, select on all sequences in schema public to authenticated;
+grant execute on function
+  public.is_admin(), public.is_owner(), public.owner_exists(), public.jwt_discord(),
+  public._norm_key(text), public._hash_key(text),
+  public.claim_owner(text), public.create_admin_key(text, text, integer), public.redeem_admin_key(text),
+  public.revoke_admin_key(uuid), public.set_admin_revoked(uuid, boolean), public.touch_admin(),
+  public.set_player_tier(uuid, smallint, text)
+  to anon, authenticated;
+-- 내부용 · SQL Editor 전용 함수는 사이트에서 못 부르게
+revoke execute on function public._key_fail(uuid) from public, anon, authenticated;
+revoke execute on function public.set_owner_setup_key(text) from public, anon, authenticated;
