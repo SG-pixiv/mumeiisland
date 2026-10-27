@@ -25,7 +25,7 @@ function cleanUrls() {
     next();
   };
   return {
-    name: 'mumyeongseom-clean-urls',
+    name: 'mumeiisland-clean-urls',
     configureServer(server) { server.middlewares.use(rewrite(root)); },
     configurePreviewServer(server) { server.middlewares.use(rewrite(resolve(root, 'dist'))); }
   };

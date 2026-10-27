@@ -47,8 +47,8 @@ select public.set_owner_setup_key('여기에_영문숫자로_긴_키');
    `https://<Supabase 프로젝트 ID>.supabase.co/auth/v1/callback`
 4. Supabase → **Authentication → Sign In / Providers → Discord** 켜고 Client ID / Secret 붙여 넣기
 5. Supabase → **Authentication → URL Configuration**
-   - Site URL: Vercel 주소 (6번에서 생겨요, 예: `https://mumyeongseom.vercel.app`)
-   - Redirect URLs 에 추가: `https://mumyeongseom.vercel.app/login`, `http://localhost:5173/login`
+   - Site URL: Vercel 주소 (6번에서 생겨요, 예: `https://mumeiisland.vercel.app`)
+   - Redirect URLs 에 추가: `https://mumeiisland.vercel.app/login`, `http://localhost:5173/login`
 
 ### 5. 이리 API 동기화 함수 올리기 (PowerShell)
 ```powershell
