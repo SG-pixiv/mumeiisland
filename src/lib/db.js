@@ -1,0 +1,170 @@
+// DB 접근은 전부 여기를 거쳐요. Supabase 가 연결돼 있으면 진짜 DB, 아니면 demo.js 예시 데이터.
+import { supabase, isDemo } from './supabase.js';
+import { tables, views } from './demo.js';
+
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+function applyFilters(rows, { eq = {}, inn = {}, gte = {}, lte = {}, neq = {}, isNull = [], notNull = [] }) {
+  return rows.filter((r) =>
+    Object.entries(eq).every(([k, v]) => r[k] === v) &&
+    Object.entries(neq).every(([k, v]) => r[k] !== v) &&
+    Object.entries(inn).every(([k, v]) => v.includes(r[k])) &&
+    Object.entries(gte).every(([k, v]) => r[k] >= v) &&
+    Object.entries(lte).every(([k, v]) => r[k] <= v) &&
+    isNull.every((k) => r[k] === null || r[k] === undefined) &&
+    notNull.every((k) => r[k] !== null && r[k] !== undefined)
+  );
+}
+
+function check({ data, error }) {
+  if (error) throw error;
+  return data;
+}
+
+/**
+ * select('players', { eq: { active: true }, order: 'display_name', asc: true, limit: 10 })
+ */
+export async function select(table, opts = {}) {
+  const { order, asc = true, limit, columns = '*' } = opts;
+  if (isDemo) {
+    const base = views[table] ? views[table]() : tables[table] || [];
+    let rows = applyFilters(base, opts);
+    if (order) rows = rows.slice().sort((a, b) => (a[order] > b[order] ? 1 : a[order] < b[order] ? -1 : 0) * (asc ? 1 : -1));
+    if (limit) rows = rows.slice(0, limit);
+    return clone(rows);
+  }
+  let q = supabase.from(table).select(columns);
+  for (const [k, v] of Object.entries(opts.eq || {})) q = q.eq(k, v);
+  for (const [k, v] of Object.entries(opts.neq || {})) q = q.neq(k, v);
+  for (const [k, v] of Object.entries(opts.inn || {})) q = q.in(k, v);
+  for (const [k, v] of Object.entries(opts.gte || {})) q = q.gte(k, v);
+  for (const [k, v] of Object.entries(opts.lte || {})) q = q.lte(k, v);
+  for (const k of opts.isNull || []) q = q.is(k, null);
+  for (const k of opts.notNull || []) q = q.not(k, 'is', null);
+  if (order) q = q.order(order, { ascending: asc });
+  if (limit) q = q.limit(limit);
+  return check(await q) || [];
+}
+
+export async function insert(table, rows) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  if (isDemo) {
+    const made = list.map((r) => ({ id: r.id ?? crypto.randomUUID(), created_at: new Date().toISOString(), ...r }));
+    (tables[table] ||= []).push(...made);
+    return clone(made);
+  }
+  return check(await supabase.from(table).insert(list).select()) || [];
+}
+
+export async function update(table, values, eq) {
+  if (isDemo) {
+    const rows = applyFilters(tables[table] || [], { eq });
+    rows.forEach((r) => Object.assign(r, values));
+    return clone(rows);
+  }
+  let q = supabase.from(table).update(values);
+  for (const [k, v] of Object.entries(eq)) q = q.eq(k, v);
+  return check(await q.select()) || [];
+}
+
+export async function upsert(table, rows, keys = ['id']) {
+  const list = Array.isArray(rows) ? rows : [rows];
+  if (isDemo) {
+    const t = (tables[table] ||= []);
+    for (const r of list) {
+      const hit = t.find((x) => keys.every((k) => x[k] === r[k]));
+      if (hit) Object.assign(hit, r); else t.push({ ...r });
+    }
+    return clone(list);
+  }
+  return check(await supabase.from(table).upsert(list, { onConflict: keys.join(',') }).select()) || [];
+}
+
+export async function remove(table, eq) {
+  if (isDemo) {
+    const t = tables[table] || [];
+    const keep = t.filter((r) => !Object.entries(eq).every(([k, v]) => r[k] === v));
+    tables[table] = keep;
+    return;
+  }
+  let q = supabase.from(table).delete();
+  for (const [k, v] of Object.entries(eq)) q = q.eq(k, v);
+  check(await q);
+}
+
+// ── 서버 함수 (SQL 함수 · Edge Function)
+const demoRpc = {
+  is_admin: () => true,
+  is_owner: () => true,
+  owner_exists: () => true,
+  touch_admin: () => null,
+  claim_owner: () => ({ ok: true }),
+  redeem_admin_key: () => ({ ok: true }),
+  set_player_tier: ({ p_player, p_tier, p_memo }) => {
+    const p = tables.players.find((x) => x.id === p_player);
+    if (!p || p.balance_tier === p_tier) return null;
+    tables.tier_history.push({ id: Date.now(), player_id: p_player, from_tier: p.balance_tier, to_tier: p_tier, memo: p_memo || null, changed_by: 'demo-owner', changed_at: new Date().toISOString() });
+    p.balance_tier = p_tier;
+    return null;
+  },
+  create_admin_key: ({ p_memo, p_target, p_ttl_hours }) => {
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const k = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => abc[b % 32]).join('');
+    tables.admin_keys.push({ id: crypto.randomUUID(), key_hash: 'demo', prefix: k.slice(0, 4), memo: p_memo || null, target_discord: (p_target || '').replace(/^@/, '').toLowerCase() || null, expires_at: new Date(Date.now() + p_ttl_hours * 3600000).toISOString(), created_by: 'demo-owner', created_via: 'web', created_at: new Date().toISOString(), used_at: null, used_by: null, revoked_at: null });
+    return `${k.slice(0, 4)}-${k.slice(4, 8)}-${k.slice(8)}`;
+  },
+  revoke_admin_key: ({ p_id }) => { const k = tables.admin_keys.find((x) => x.id === p_id); if (k) k.revoked_at = new Date().toISOString(); return null; },
+  set_admin_revoked: ({ p_user, p_revoked }) => { const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner'); if (a) a.revoked_at = p_revoked ? new Date().toISOString() : null; return null; }
+};
+
+export async function rpc(fn, args = {}) {
+  if (isDemo) return clone(demoRpc[fn] ? demoRpc[fn](args) ?? null : null);
+  return check(await supabase.rpc(fn, args));
+}
+
+export async function invokeFunction(name, body = {}) {
+  if (isDemo) {
+    if (name === 'er-sync') {
+      const list = tables.players.filter((p) => p.active && (!body.player_id || p.id === body.player_id));
+      const now = new Date().toISOString();
+      list.forEach((p) => { const s = tables.player_rank_stats.find((x) => x.player_id === p.id); if (s) s.synced_at = now; });
+      return { season_id: 33, total: list.length, done: list.length, next_offset: null, demo: true, results: list.map((p) => ({ player_id: p.id, name: p.display_name, ok: true })) };
+    }
+    return { demo: true };
+  }
+  const { data, error } = await supabase.functions.invoke(name, { body });
+  if (error) {
+    // 함수가 보낸 오류 메시지를 꺼내요
+    let msg = error.message;
+    try { const j = await error.context?.json?.(); if (j?.error) msg = j.error; } catch { /* 그대로 */ }
+    throw new Error(msg);
+  }
+  return data;
+}
+
+// ── 로그인 (디스코드)
+const demoUser = { id: 'demo-owner', user_metadata: { full_name: 'demo', custom_claims: { global_name: 'SG (데모)' }, avatar_url: null } };
+
+export const auth = {
+  async session() {
+    if (isDemo) return { user: demoUser };
+    const { data } = await supabase.auth.getSession();
+    return data.session;
+  },
+  async signInDiscord(redirectTo) {
+    if (isDemo) { location.href = redirectTo; return; }
+    const { error } = await supabase.auth.signInWithOAuth({ provider: 'discord', options: { redirectTo, scopes: 'identify' } });
+    if (error) throw error;
+  },
+  async signOut() {
+    if (isDemo) return;
+    await supabase.auth.signOut();
+  },
+  displayName(user) {
+    const m = user?.user_metadata || {};
+    return m.custom_claims?.global_name || m.full_name || m.name || '운영진';
+  },
+  avatarUrl(user) {
+    return user?.user_metadata?.avatar_url || '';
+  }
+};
