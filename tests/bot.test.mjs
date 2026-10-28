@@ -12,7 +12,7 @@ import { roundResultMessage, pts } from '../bot/src/logic.js';
 const KEYS = {
   events: ['id'], players: ['id'], player_private: ['player_id'], event_participants: ['event_id', 'player_id'],
   event_teams: ['event_id', 'player_id'], bot_messages: ['event_id', 'kind'], mvp_votes: ['event_id', 'voter_player_id'],
-  player_rank_stats: ['player_id'], discord_link_requests: ['id'], admins: ['user_id'], admin_keys: ['id']
+  player_rank_stats: ['player_id'], discord_link_requests: ['id'], admins: ['user_id'], admin_keys: ['id'], admin_grants: ['discord_id']
 };
 function fakeDb(seed) {
   const t = structuredClone(seed);
@@ -62,7 +62,23 @@ function fakeDb(seed) {
   return {
     t, calls,
     from: (name) => new Q(name),
-    rpc: async (name, args) => { calls.push([name, args]); return name === 'bot_create_admin_key' ? { data: 'ABCD-EFGH-JKLM', error: null } : { data: null, error: { message: 'no rpc' } }; }
+    rpc: async (name, args) => {
+      calls.push([name, args]);
+      if (name === 'bot_create_admin_key') return { data: 'ABCD-EFGH-JKLM', error: null };
+      if (name === 'bot_grant_admin') {   // 8단계 SQL 흉내: 소유자 확인 → 이미 관리자 / 로그인한 적 있음(LOGGED) / 예약
+        if (!(t.admins ?? []).some((a) => a.discord_id === args.p_by_discord && a.role === 'owner' && !a.revoked_at)) return { data: null, error: { message: '관리자 추가는 무명섬 소유자만 할 수 있어요' } };
+        const cur = (t.admins ?? []).find((a) => a.discord_id === args.p_discord_id && !a.revoked_at);
+        if (cur) return { data: { ok: true, state: 'already', name: cur.discord_name }, error: null };
+        (t.admin_grants ||= []).push({ discord_id: args.p_discord_id, discord_name: args.p_name || null, created_via: 'bot', used_at: null, revoked_at: null });
+        if (args.p_discord_id.startsWith('LOGGED')) {
+          t.admin_grants.at(-1).used_at = 'now';
+          t.admins.push({ user_id: 'U-' + args.p_discord_id, discord_id: args.p_discord_id, discord_name: args.p_name, role: 'admin', registered_via: '봇 /관리자추가', revoked_at: null });
+          return { data: { ok: true, state: 'added', name: args.p_name }, error: null };
+        }
+        return { data: { ok: true, state: 'pending', name: args.p_name }, error: null };
+      }
+      return { data: null, error: { message: 'no rpc' } };
+    }
   };
 }
 
@@ -147,8 +163,10 @@ test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아
     assert.match(c.name, ok); assert.ok(c.description.length <= 100, c.name);
     for (const o of c.options ?? []) { assert.match(o.name, ok); assert.ok(o.description.length <= 100); for (const s of o.options ?? []) assert.ok(s.description.length <= 100); }
   }
-  assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), ['내전공지', 'mvp', '채널설정', '관리자키', '관리자목록', '관리자해제']);
-  assert.equal(commands.length, 11);
+  // 운영진 명령어도 목록에는 다 보여요 (봇이 서버 관리자 · 무명섬 관리자인지 확인)
+  assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), []);
+  assert.ok(commands.some((c) => c.name === '관리자추가' && c.options[0].required));
+  assert.equal(commands.length, 12);
 });
 
 test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async () => {
@@ -179,7 +197,7 @@ test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async ()
 test('/내전공지 → 버튼으로 참가 · 취소, 인원 메시지가 바로 바뀌어요', async () => {
   const s = setup();
   s.db.t.player_private.push({ player_id: 'P1', discord_id: 'D1' });
-  assert.match(s.last(await s.run({ cmd: '내전공지' })), /서버 관리자만/);
+  assert.match(s.last(await s.run({ cmd: '내전공지' })), /운영진\(디스코드 서버 관리자 · 무명섬 관리자\)만/);
   assert.match(s.last(await s.run({ cmd: '내전공지', admin: true })), /공지를 이 채널에 올렸어요/);
   assert.equal(s.db.t.events.find((e) => e.id === 'E1').status, 'open');                 // 예정 → 모집 중
   assert.equal(s.sent.length, 1);
@@ -239,7 +257,7 @@ test('/mvp 시작 → 투표 → /mvp 마감: 최다 득표 MVP, 공동 1위는 
 
 test('/관리자키: 서버 관리자만, 명령어를 쓴 디스코드 계정 전용 키', async () => {
   const s = setup();
-  assert.match(s.last(await s.run({ cmd: '관리자키', user: 'D7' })), /서버 관리자나 무명섬 관리자만/);
+  assert.match(s.last(await s.run({ cmd: '관리자키', user: 'D7' })), /운영진/);
   const r = s.last(await s.run({ cmd: '관리자키', user: 'D7', admin: true, nick: '새 운영진' }));
   assert.match(r, /ABCD-EFGH-JKLM/);
   assert.match(r, /https:\/\/mumei\.test\/login/);
@@ -259,7 +277,7 @@ test('/관리자키 @유저 → DM, 이미 관리자면 안 만들어요 · DM �
   assert.match(s.last(await s.run({ cmd: '관리자키', admin: true, users: { 유저: { id: 'B1', bot: true, nick: '봇' } } })), /봇에게는/);
   // 서버 관리자가 아니어도 무명섬 관리자면 쓸 수 있어요
   assert.match(s.last(await s.run({ cmd: '관리자키', user: 'D-A', users: newbie })), /DM 으로/);
-  assert.match(s.last(await s.run({ cmd: '관리자키', user: 'D9', users: newbie })), /서버 관리자나 무명섬 관리자만/);
+  assert.match(s.last(await s.run({ cmd: '관리자키', user: 'D9', users: newbie })), /운영진/);
   const f = setup(undefined, { dmFails: true });
   const r = f.last(await f.run({ cmd: '관리자키', admin: true, users: newbie }));
   assert.match(r, /DM 이 막혀 있어서 대신/);
@@ -272,7 +290,7 @@ test('/관리자목록 · /관리자해제 (소유자만, 남은 키도 취소)'
   const list = s.last(await s.run({ cmd: '관리자목록', admin: true }));
   assert.match(list, /무명섬 관리자 2명 · 안 쓴 키 2개/);
   assert.match(list, /👑 \*\*SG\*\* \(소유자\)/);
-  assert.match(s.last(await s.run({ cmd: '관리자목록', user: 'D9' })), /서버 관리자나 무명섬 관리자만/);
+  assert.match(s.last(await s.run({ cmd: '관리자목록', user: 'D9' })), /운영진/);
 
   const a = { 유저: { id: 'D-A', nick: '운석' } };
   assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-A', admin: true, users: a })), /소유자만/);      // 서버 관리자여도 소유자가 아니면 안 돼요
@@ -287,7 +305,7 @@ test('/관리자목록 · /관리자해제 (소유자만, 남은 키도 취소)'
 
 test('/채널설정: 공지 채널로 올리기 · 명령어 채널 제한', async () => {
   const s = setup();
-  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기' })), /서버 관리자만/);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기' })), /운영진/);
   assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기', admin: true })), /공지 · 알림 채널: 아직 없어요/);
   assert.match(s.last(await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } })), /<#C-ANN> 에 올라가요/);
   assert.match(s.last(await s.run({ cmd: '채널설정', sub: '명령어', admin: true, channel: 'C-CMD' })), /<#C-CMD> 에서만/);   // 채널을 안 고르면 지금 채널
@@ -366,4 +384,45 @@ test('규칙 함수', () => {
   assert.equal(eventChoices(evs, '', NOW)[0].value, 'E1');
   const m = signupMessage({ ...evs[0], status: 'fixed' }, [], '');
   assert.equal(m.components[0].components[0].disabled, true);        // 모집 마감이면 참가 버튼이 꺼져요
+});
+
+test('/관리자추가: 소유자만 · 서버 관리자가 아니어도 운영진 명령어를 쓸 수 있어요', async () => {
+  const s = setup();
+  const newbie = { 유저: { id: 'D7', nick: '새 운영진' } };
+  // 서버 관리자 · 일반 관리자는 못 해요
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-A', admin: true, users: newbie })), /소유자만/);
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D9', admin: true, users: newbie })), /소유자만/);
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-SG', users: { 유저: { id: 'B1', bot: true, nick: '봇' } } })), /봇은/);
+  // 추가 전에는 D7 이 운영진 명령어를 못 써요
+  assert.match(s.last(await s.run({ cmd: '내전공지', user: 'D7' })), /운영진/);
+
+  // 소유자가 추가 (사이트 로그인 전 → 예약) · DM 도 가요
+  const r = s.last(await s.run({ cmd: '관리자추가', user: 'D-SG', users: newbie }));
+  assert.match(r, /새 운영진 님을 무명섬 관리자로 추가했어요! 디스코드 운영진 명령어는 지금부터/);
+  assert.match(r, /https:\/\/mumei\.test\/login/);
+  assert.deepEqual(s.db.calls.at(-1), ['bot_grant_admin', { p_by_discord: 'D-SG', p_discord_id: 'D7', p_name: '새 운영진' }]);
+  assert.equal(s.dms.at(-1).userId, 'D7');
+  assert.match(s.dms.at(-1).content, /키는 필요 없어요/);
+
+  // 서버 관리자 권한 없이도 운영진 명령어가 돼요
+  assert.match(s.last(await s.run({ cmd: '내전공지', user: 'D7' })), /공지를 이 채널에 올렸어요/);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기', user: 'D7' })), /공지 · 알림 채널/);
+  assert.match(s.last(await s.run({ cmd: '관리자키', user: 'D7' })), /이미 무명섬 관리자예요\. https:\/\/mumei\.test\/login/);
+  // 목록에 "로그인 전"으로 보여요
+  assert.match(s.last(await s.run({ cmd: '관리자목록', user: 'D7' })), /관리자 2명 \(\+ 로그인 전 1명\)[\s\S]*⏳ \*\*새 운영진\*\* · 사이트 로그인 전/);
+  // 다시 추가하면 이미 관리자 (예약도 관리자로 봐요) — 로그인한 적 있는 사람은 바로 관리자
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-SG', users: { 유저: { id: 'LOGGED1', nick: '로그인했던사람' } } })), /바로 관리자 화면/);
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-SG', users: { 유저: { id: 'D-A', nick: '운석' } } })), /이미 무명섬 관리자예요/);
+  assert.equal(s.dms.filter((d) => d.userId === 'D-A').length, 0, '이미 관리자면 DM 안 보내요');
+
+  // 소유자가 /관리자해제 하면 예약도 취소 → 다시 못 써요
+  assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-SG', users: newbie })), /새 운영진 님의 관리자 추가\(로그인 전\)를 취소했어요/);
+  assert.ok(s.db.t.admin_grants.find((g) => g.discord_id === 'D7').revoked_at);
+  assert.match(s.last(await s.run({ cmd: '내전공지', user: 'D7' })), /운영진/);
+});
+
+test('/관리자추가: 8단계 SQL 전이면 알려 줘요', async () => {
+  const s = setup();
+  s.db.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.bot_grant_admin' } });
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-SG', users: { 유저: { id: 'D7', nick: '새 운영진' } } })), /8단계/);
 });

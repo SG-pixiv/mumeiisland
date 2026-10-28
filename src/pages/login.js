@@ -121,7 +121,8 @@ on(app, 'submit', '[data-key-form]', async (e, form) => {
       if (err) state.error = err;
     } else {
       state.user = session.user;
-      if (await rpc('is_admin')) { location.replace(next); return; }
+      // 관리자이거나, 소유자가 이 디스코드 계정을 바로 추가해 뒀으면 키 없이 들어가요
+      if ((await rpc('is_admin')) || (await rpc('claim_admin_grant').catch(() => false))) { location.replace(next); return; }
       state.step = (await rpc('owner_exists')) ? 'key' : 'owner';
     }
   } catch (e) {

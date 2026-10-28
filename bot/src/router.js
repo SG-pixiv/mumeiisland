@@ -53,15 +53,10 @@ export function createRouter({
     }
   }
 
-  async function adminOnly(i) {
-    if (isAdmin(i)) return true;
-    await i.reply(eph('서버 관리자만 쓸 수 있는 명령어예요.'));
-    return false;
-  }
-  /** 서버 관리자 또는 무명섬 웹 관리자 */
+  /** 운영진: 디스코드 서버 관리자 또는 무명섬 관리자 (소유자가 추가한 사람 포함 · 서버 권한이 없어도 돼요) */
   async function staffOnly(i) {
     if (isAdmin(i) || (await service.webAdmin(i.user.id))) return true;
-    await i.reply(eph('서버 관리자나 무명섬 관리자만 쓸 수 있는 명령어예요.'));
+    await i.reply(eph('운영진(디스코드 서버 관리자 · 무명섬 관리자)만 쓸 수 있는 명령어예요.'));
     return false;
   }
   const keyText = (key, forName) => [
@@ -163,7 +158,7 @@ export function createRouter({
         return;
       }
       case '내전공지': {
-        if (!(await adminOnly(i))) return;
+        if (!(await staffOnly(i))) return;
         await i.deferReply({ flags: EPHEMERAL });
         const r = await service.announce({ eventId });
         if (!r.ok) return i.editReply({ content: r.text });
@@ -172,7 +167,7 @@ export function createRouter({
         return i.editReply({ content: `**${r.event.title}** 공지를 ${where(ch, i)}에 올렸어요! 참가자가 버튼을 누를 때마다 인원이 바뀌어요.${r.old ? ' (예전 공지의 버튼은 뗐어요)' : ''}` });
       }
       case 'mvp': {
-        if (!(await adminOnly(i))) return;
+        if (!(await staffOnly(i))) return;
         await i.deferReply({ flags: EPHEMERAL });
         if (i.options.getSubcommand() === '시작') {
           const r = await service.mvpStart({ eventId });
@@ -191,7 +186,7 @@ export function createRouter({
         return i.editReply({ content: `${where(ch, i)}에 발표했어요! MVP는 **${r.mvpName}**${r.result.drawn ? ' (공동 1위 추첨)' : ''}. 무명섬 내전 기록에도 저장됐어요.` });
       }
       case '채널설정': {
-        if (!(await adminOnly(i))) return;
+        if (!(await staffOnly(i))) return;
         const sub = i.options.getSubcommand();
         const gid = i.guildId ?? guildId;
         const cur = channelsOf(store, gid);
@@ -236,6 +231,24 @@ export function createRouter({
         if (!(await staffOnly(i))) return;
         await i.deferReply({ flags: EPHEMERAL });
         return i.editReply({ content: (await service.adminList()).text });
+      }
+      case '관리자추가': {
+        await i.deferReply({ flags: EPHEMERAL });
+        const target = i.options.getUser('유저');
+        if (!target) return i.editReply({ content: '관리자로 추가할 사람을 골라 주세요.' });
+        if (target.bot) return i.editReply({ content: '봇은 관리자로 추가할 수 없어요.' });
+        const name = userName(i, '유저');
+        const r = await service.grantAdmin({ byDiscordId: i.user.id, targetDiscordId: target.id, targetName: name });
+        if (r.ok && r.state !== 'already' && target.id !== i.user.id) {
+          try {
+            await sendDM(target.id, [
+              `${displayName(i)} 님이 무명섬 관리자로 추가했어요! 🛡️`,
+              `• ${siteUrl}/login 에서 이 디스코드 계정으로 로그인하면 바로 관리자 화면이 열려요. (키는 필요 없어요)`,
+              '• 디스코드에서 /내전공지 · /mvp · /채널설정 같은 운영진 명령어도 쓸 수 있어요.'
+            ].join('\n'));
+          } catch { /* DM 이 막혀 있어도 추가는 됐어요 */ }
+        }
+        return i.editReply({ content: r.text });
       }
       case '관리자해제': {
         await i.deferReply({ flags: EPHEMERAL });

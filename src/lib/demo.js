@@ -63,7 +63,9 @@ function build() {
     // 12번(공장야근)은 게임 닉네임을 factory_night → factory_night99 로 바꾼 상황이에요 (예시 CSV 에 새 닉네임으로 나와요)
     sync_error: n === 12 ? "이리에서 'factory_night' 을(를) 찾지 못했어요. 닉네임이 바뀐 것 같아요. 선수 관리에서 새 닉네임으로 고쳐 주세요 (예전 점수는 그대로 둬요)" : null
   }));
-  const player_private = roster.map(([n]) => ({ player_id: T(n), discord_id: null, memo: null }));
+  // 디스코드가 연결된 선수 몇 명 (봇 /연결 승인) · 9002 는 이미 관리자인 운영진
+  const linkedDiscord = { 2: '402938470100000002', 3: '402938470100000003', 4: '9002' };
+  const player_private = roster.map(([n]) => ({ player_id: T(n), discord_id: linkedDiscord[n] || null, memo: null }));
   const er_characters = Object.entries(charCodes).map(([name_ko, code]) => ({ code, name_ko, name_en: charEn[name_ko] || null }));
   const tier_history = [
     { id: 1, player_id: T(1), from_tier: null, to_tier: 2, memo: '첫 등록', changed_by: null, changed_at: iso('2026-09-12T19:00:00+09:00') },
@@ -141,6 +143,11 @@ function build() {
     { id: 'k1', key_hash: 'x', prefix: 'Q9ZP', memo: '새 운영진', target_discord: null, expires_at: iso('2026-10-28T10:00:00+09:00'), created_by: 'demo-owner', created_via: 'web', created_at: iso('2026-10-27T09:00:00+09:00'), used_at: null, used_by: null, revoked_at: null }
   ];
 
+  // 관리자 바로 추가 (8단계): 사이트 로그인을 기다리는 사람 한 명
+  const admin_grants = [
+    { discord_id: '1029384799', discord_name: '호텔투숙객', created_by: 'demo-owner', created_via: 'bot', created_at: iso('2026-10-28T21:10:00+09:00'), used_at: null, used_by: null, revoked_at: null }
+  ];
+
   const upload_devices = [{ id: 'dev-1', name: 'SG 게임 PC', key_hash: 'demo', prefix: 'K7QX', created_by: 'demo-owner', created_at: iso('2026-10-20T19:00:00+09:00'), last_seen_at: iso('2026-10-24T23:12:00+09:00'), last_file: 'GameResult_48213.csv', revoked_at: null }];
 
   // 디스코드 봇 (6단계): 연결 요청 하나, 봇 켜짐 신호, 지난 두 내전의 MVP 투표 결과
@@ -155,7 +162,7 @@ function build() {
   events.forEach((e) => { e.live_state = 'idle'; e.live_round = null; e.live_changed_at = null; });
   Object.assign(events.find((e) => e.id === E(2)), { live_state: 'ended', live_round: 4, live_changed_at: iso('2026-10-24T23:12:00+09:00') });
 
-  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes };
+  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes };
 }
 
 export const tables = build();

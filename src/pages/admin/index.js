@@ -9,13 +9,14 @@ import { liveReady } from '../../lib/live-api.js';
 
 startAdmin('home', async (main, { user }) => {
  const render = async () => {
-  const [events, { list, byId }, pending, admins, devices, links, linked, bot] = await Promise.all([
+  const [events, { list, byId }, pending, admins, devices, links, linked, bot, grants] = await Promise.all([
     loadEvents(), loadPlayers({ includeInactive: true }),
     select('rounds', { eq: { status: 'pending' } }), select('admins'),
     select('upload_devices').catch(() => null),   // 2단계 SQL 실행 전이면 null
     select('discord_link_requests', { eq: { status: 'pending' }, order: 'created_at' }).catch(() => null),   // 6단계 SQL 실행 전이면 null
     select('player_private').catch(() => []),
-    select('bot_status').catch(() => [])
+    select('bot_status').catch(() => []),
+    select('admin_grants', { columns: 'discord_id' }).catch(() => null)   // 8단계 SQL 실행 전이면 null
   ]);
   const discordOf = new Map((linked || []).filter((r) => r.discord_id).map((r) => [r.player_id, r.discord_id]));
   const botSeen = bot?.[0]?.last_seen_at;
@@ -43,6 +44,7 @@ startAdmin('home', async (main, { user }) => {
     !events.length && ['첫 내전 일정 만들기', '날짜 · 방식 · 참가자를 정해요', '/admin/schedule', '일정 관리'],
     admins.length < 2 && ['운영진 초대하기', '권한 관리에서 관리자 키를 만들어 전해 주세요', '/admin/access', '권한 관리'],
     links === null && ['디스코드 봇용 DB 추가하기', 'Supabase SQL Editor 에서 20261028080000_discord_bot.sql 을 실행해 주세요 (README 14번)', '/admin', '확인'],
+    grants === null && ['관리자 바로 추가용 DB 추가하기', 'Supabase SQL Editor 에서 20261029000000_admin_grants.sql 을 실행해 주세요 (README 16번)', '/admin/access', '확인'],
     !liveReady(events) && ['방송 오버레이용 DB 추가하기', 'Supabase SQL Editor 에서 20261028100000_overlay.sql 을 실행해 주세요 (README 15번)', '/admin/live', '확인']
   ].filter(Boolean);
   const linkCard = links && links.length ? html`<section class="card ink"><div class="card-head"><h2>디스코드 연결 요청 ${links.length}건</h2><small class="muted" style="font-weight: 600">봇의 /연결 게임닉네임</small></div>

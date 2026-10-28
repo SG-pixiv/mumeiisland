@@ -57,10 +57,22 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
     return mvpMessage(event, cands, (votes ?? []).length, cands.length);
   };
 
-  /** 무명섬 웹 관리자인 디스코드 계정인지 (해제된 사람 빼고) */
+  /** 소유자가 추가했지만 아직 사이트에 로그인하지 않은 사람 (8단계 SQL 전이면 없음) */
+  const pendingGrants = async (discordId = null) => {
+    let q = db.from('admin_grants').select('discord_id, discord_name, created_via, created_at, used_at, revoked_at');
+    if (discordId) q = q.eq('discord_id', id(discordId));
+    const { data, error } = await q;
+    if (error) return [];
+    return (data ?? []).filter((g) => !g.used_at && !g.revoked_at);
+  };
+
+  /** 무명섬 관리자인 디스코드 계정인지 (해제된 사람 빼고, 로그인 전 예약 포함) */
   const webAdmin = async (discordId) => {
     const rows = must(await db.from('admins').select('user_id, discord_id, discord_name, role, revoked_at').eq('discord_id', id(discordId))) ?? [];
-    return rows.find((r) => !r.revoked_at) ?? null;
+    const admin = rows.find((r) => !r.revoked_at);
+    if (admin) return admin;
+    const [grant] = await pendingGrants(discordId);
+    return grant ? { user_id: null, discord_id: grant.discord_id, discord_name: grant.discord_name, role: 'admin', pending: true } : null;
   };
 
   return {
@@ -212,7 +224,7 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
     /** /관리자키 [유저]: 그 디스코드 계정만 쓸 수 있는 24시간 키 (권한 확인은 router) */
     async adminKey({ discordId, discordName }) {
       const already = await webAdmin(discordId);
-      if (already) return { ok: false, text: `${discordName || '그 사람'} 님은 이미 무명섬 관리자예요. 디스코드로 로그인만 하면 돼요.` };
+      if (already) return { ok: false, text: `${discordName || '그 사람'} 님은 이미 무명섬 관리자예요. ${siteUrl ? siteUrl + '/login' : '무명섬 사이트'} 에서 디스코드로 로그인만 하면 돼요.` };
       const key = must(await db.rpc('bot_create_admin_key', { p_discord_id: id(discordId), p_discord_name: discordName || '' }));
       return { ok: true, key };
     },
@@ -224,9 +236,30 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
         db.from('admin_keys').select('id, expires_at, used_at, revoked_at').then(must)
       ]);
       const active = (admins ?? []).filter((a) => !a.revoked_at);
+      const waiting = (await pendingGrants()).filter((g) => !active.some((a) => a.discord_id === g.discord_id));
       const unused = (keys ?? []).filter((k) => !k.used_at && !k.revoked_at && Date.parse(k.expires_at) > now()).length;
       const lines = active.map((a) => `${a.role === 'owner' ? '👑' : '🛡️'} **${a.discord_name || '이름 없음'}**${a.role === 'owner' ? ' (소유자)' : ''} · ${a.registered_via}${a.last_seen_at ? ` · 마지막 접속 ${shortKst(a.last_seen_at)}` : ''}`);
-      return { ok: true, text: [`무명섬 관리자 ${active.length}명 · 안 쓴 키 ${unused}개`, ...lines, siteUrl ? `자세히: ${siteUrl}/admin/access` : ''].filter(Boolean).join('\n') };
+      const waitLines = waiting.map((g) => `⏳ **${g.discord_name || `<@${g.discord_id}>`}** · 사이트 로그인 전 (${g.created_via === 'bot' ? '봇' : '웹'}에서 추가 · 운영진 명령어는 지금도 돼요)`);
+      const head = `무명섬 관리자 ${active.length}명${waiting.length ? ` (+ 로그인 전 ${waiting.length}명)` : ''} · 안 쓴 키 ${unused}개`;
+      return { ok: true, text: [head, ...lines, ...waitLines, siteUrl ? `자세히: ${siteUrl}/admin/access` : ''].filter(Boolean).join('\n') };
+    },
+
+    /** /관리자추가 @유저: 무명섬 소유자만. 사이트에 로그인한 적 있으면 바로, 없으면 그 계정으로 처음 로그인할 때 관리자가 돼요 */
+    async grantAdmin({ byDiscordId, targetDiscordId, targetName }) {
+      const me = await webAdmin(byDiscordId);
+      if (me?.role !== 'owner') return { ok: false, text: '관리자 추가는 무명섬 소유자만 할 수 있어요.' };
+      const { data, error } = await db.rpc('bot_grant_admin', { p_by_discord: id(byDiscordId), p_discord_id: id(targetDiscordId), p_name: targetName || '' });
+      if (error) {
+        if (error.code === 'PGRST202' || /bot_grant_admin/.test(error.message ?? '')) {
+          return { ok: false, text: '아직 DB 8단계를 안 했어요. Supabase SQL Editor 에서 20261029000000_admin_grants.sql 을 실행해 주세요.' };
+        }
+        throw new Error(error.message);
+      }
+      const who = targetName || data?.name || '그 사람';
+      const login = siteUrl ? `${siteUrl}/login` : '무명섬 사이트';
+      if (data?.state === 'already') return { ok: true, state: 'already', text: `${who} 님은 이미 무명섬 관리자예요.` };
+      if (data?.state === 'added') return { ok: true, state: 'added', text: `${who} 님을 무명섬 관리자로 추가했어요! 바로 관리자 화면(${login})에 들어갈 수 있고, 디스코드 운영진 명령어도 서버 관리자처럼 쓸 수 있어요.` };
+      return { ok: true, state: 'pending', text: `${who} 님을 무명섬 관리자로 추가했어요! 디스코드 운영진 명령어는 지금부터 쓸 수 있고, ${login} 에서 디스코드로 처음 로그인하면 바로 관리자 화면이 열려요.` };
     },
 
     /** /관리자해제 유저: 무명섬 소유자만. 그 사람 앞으로 남은 키도 취소 */
@@ -238,7 +271,10 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       const keys = (must(await db.from('admin_keys').select('id, used_at, revoked_at').eq('target_discord', id(targetDiscordId).toLowerCase())) ?? []).filter((k) => !k.used_at && !k.revoked_at);
       const stamp = new Date(now()).toISOString();
       for (const k of keys) must(await db.from('admin_keys').update({ revoked_at: stamp }).eq('id', k.id));
-      const keyNote = keys.length ? ` 안 쓴 키 ${keys.length}개도 취소했어요.` : '';
+      const grants = await pendingGrants(targetDiscordId);
+      for (const g of grants) must(await db.from('admin_grants').update({ revoked_at: stamp }).eq('discord_id', g.discord_id));
+      const keyNote = (keys.length ? ` 안 쓴 키 ${keys.length}개도 취소했어요.` : '') + (grants.length && rows.length ? ' 로그인 전 추가 예약도 취소했어요.' : '');
+      if (!rows.length && grants.length) return { ok: true, text: `${targetName || grants[0].discord_name || '그 사람'} 님의 관리자 추가(로그인 전)를 취소했어요.${keyNote}` };
       if (!rows.length) return { ok: !!keys.length, text: `${targetName || '그 사람'} 님은 무명섬 관리자가 아니에요.${keyNote}` };
       for (const r of rows) must(await db.from('admins').update({ revoked_at: stamp }).eq('user_id', r.user_id));
       return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };

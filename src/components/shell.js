@@ -83,7 +83,10 @@ async function adminSession(app) {
   const back = encodeURIComponent(location.pathname + location.search);
   try {
     const session = await auth.session();
-    if (!session || !(await rpc('is_admin'))) { location.replace('/login?next=' + back); return null; }
+    if (!session) { location.replace('/login?next=' + back); return null; }
+    // 소유자가 바로 추가한 디스코드 계정이면 여기서 관리자가 돼요 (8단계 SQL 전이면 그냥 넘어가요)
+    const ok = (await rpc('is_admin')) || (await rpc('claim_admin_grant').catch(() => false));
+    if (!ok) { location.replace('/login?next=' + back); return null; }
     rpc('touch_admin').catch(() => {});
     return session;
   } catch (e) {

@@ -114,6 +114,18 @@ const demoRpc = {
     return `${k.slice(0, 4)}-${k.slice(4, 8)}-${k.slice(8)}`;
   },
   revoke_admin_key: ({ p_id }) => { const k = tables.admin_keys.find((x) => x.id === p_id); if (k) k.revoked_at = new Date().toISOString(); return null; },
+  grant_admin: ({ p_discord_id, p_name }) => {
+    const did = String(p_discord_id || '').trim();
+    if (!/^[0-9]{15,21}$/.test(did)) throw new Error('디스코드 사용자 ID(숫자 17~19자리)를 확인해 주세요');
+    const cur = tables.admins.find((a) => a.discord_id === did);
+    if (cur && !cur.revoked_at) return { ok: true, state: 'already', name: cur.discord_name };
+    if (cur) { cur.revoked_at = null; cur.registered_via = '소유자가 웹에서 추가'; return { ok: true, state: 'added', name: cur.discord_name }; }
+    tables.admin_grants = (tables.admin_grants || []).filter((g) => g.discord_id !== did);
+    tables.admin_grants.push({ discord_id: did, discord_name: (p_name || '').trim() || null, created_by: 'demo-owner', created_via: 'web', created_at: new Date().toISOString(), used_at: null, used_by: null, revoked_at: null });
+    return { ok: true, state: 'pending', name: (p_name || '').trim() || null };
+  },
+  revoke_admin_grant: ({ p_discord_id }) => { const g = (tables.admin_grants || []).find((x) => x.discord_id === p_discord_id && !x.used_at); if (g) g.revoked_at = new Date().toISOString(); return null; },
+  claim_admin_grant: () => true,
   set_admin_revoked: ({ p_user, p_revoked }) => { const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner'); if (a) a.revoked_at = p_revoked ? new Date().toISOString() : null; return null; },
   decide_discord_link: ({ p_id, p_ok }) => {
     const r = (tables.discord_link_requests || []).find((x) => x.id === p_id);
