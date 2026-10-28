@@ -1,14 +1,26 @@
 # 업로드 프로그램 exe 를 Windows 에서 만들고, 켜서 확인한 뒤 GitHub Releases 에 올려요.
-#   새 버전 내기: public/uploader/mumei-uploader.cjs 의 VERSION 을 올리고 커밋 → git tag uploader-v1.0.1 → git push origin uploader-v1.0.1
+#   새 버전 내기: public/uploader/mumei-uploader.cjs 의 VERSION 을 올리고 main 에 푸시하면 끝
+#                 (그 버전의 릴리스 uploader-v<VERSION> 이 아직 없으면 태그 · 릴리스를 만들어요. 있으면 확인만 해요)
 #   받는 주소(항상 최신): https://github.com/<계정>/<저장소>/releases/latest/download/mumei-uploader.exe
-# Actions 탭에서 "Run workflow" 로 돌리면 릴리스 없이 exe 만 만들어서 확인해요 (Artifacts 에서 받을 수 있어요).
+# Actions 탭에서 "Run workflow" 로 직접 돌려도 돼요. exe 는 Artifacts 에서도 받을 수 있어요.
 
 name: 업로드 프로그램 exe
 
 on:
   push:
-    tags: ['uploader-v*']
+    branches: [main]
+    paths:
+      - 'public/uploader/**'
+      - 'scripts/build-uploader.mjs'
+      - 'scripts/smoke-uploader.mjs'
+      - 'scripts/uploader-icon.ico'
+      - 'scripts/uploader-release.md'
+      - '.github/workflows/uploader.yml'
   workflow_dispatch:
+
+concurrency:
+  group: uploader-release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -39,13 +51,12 @@ jobs:
           $v = (& .\dist-uploader\mumei-uploader.exe --version | Out-String).Trim()
           if ($LASTEXITCODE -ne 0) { throw "exe 가 켜지지 않았어요 (종료 코드 $LASTEXITCODE)" }
           Write-Host "exe 버전: $v"
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and "uploader-v$v" -ne $env:GITHUB_REF_NAME) {
-            throw "태그($env:GITHUB_REF_NAME)와 프로그램 버전($v)이 달라요. mumei-uploader.cjs 의 VERSION 을 맞춰 주세요"
-          }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "버전 형식이 이상해요: $v" }
           $env:MUMEI_NO_PROMPT = '1'
           & .\dist-uploader\mumei-uploader.exe
           if ($LASTEXITCODE -ne 1) { throw "설정이 없을 때 안내하고 끝나야 해요 (종료 코드 $LASTEXITCODE)" }
           "UPLOADER_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          exit 0
 
       - name: 업로드 해 보기 (가짜 서버)
         run: node scripts/smoke-uploader.mjs dist-uploader/mumei-uploader.exe
@@ -57,14 +68,21 @@ jobs:
             dist-uploader/mumei-uploader.exe
             dist-uploader/NODE-LICENSE.txt
 
-      - name: 릴리스에 올리기
-        if: github.ref_type == 'tag'
+      - name: 릴리스에 올리기 (새 버전일 때만)
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:GITHUB_REF_NAME `
+          $tag = "uploader-v$env:UPLOADER_VERSION"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            Write-Host "$tag 릴리스가 이미 있어요. 새로 내려면 mumei-uploader.cjs 의 VERSION 을 올려 주세요."
+            exit 0
+          }
+          gh release create $tag `
             dist-uploader/mumei-uploader.exe dist-uploader/NODE-LICENSE.txt `
+            --target $env:GITHUB_SHA `
             --title "무명섬 업로드 프로그램 v$env:UPLOADER_VERSION" `
             --notes-file scripts/uploader-release.md `
             --latest
+          if ($LASTEXITCODE -ne 0) { throw "릴리스를 만들지 못했어요" }

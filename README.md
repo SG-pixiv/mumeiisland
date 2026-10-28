@@ -129,13 +129,9 @@ select cron.schedule('er-sync-daily', '0 20 * * *',  -- 매일 05:00 (한국 시
 #### 업로드 프로그램 exe 새 버전 내기
 프로그램 본체는 `public/uploader/mumei-uploader.cjs` 하나예요. exe 는 GitHub Actions(`.github/workflows/uploader.yml`)가 Windows 에서 만들고, 켜서 가짜 서버로 업로드까지 확인한 뒤 **Releases** 에 올려요. 업로드 장치 화면의 받기 버튼은 항상 최신 릴리스를 가리켜요.
 
-1. `mumei-uploader.cjs` 의 `VERSION` 을 올리고 커밋 · 푸시 (예: `1.0.1`)
-2. 태그 올리기
-   ```powershell
-   git tag uploader-v1.0.1
-   git push origin uploader-v1.0.1
-   ```
-3. GitHub → **Actions** 에서 "업로드 프로그램 exe" 가 초록색이 되면 끝. 켜 둔 예전 프로그램 창에는 새 버전 안내가 떠요.
+1. `mumei-uploader.cjs` 의 `VERSION` 을 올리고 (예: `1.0.1`) 커밋 · main 에 푸시
+2. GitHub → **Actions** 에서 "업로드 프로그램 exe" 가 초록색이 되면 끝. `uploader-v1.0.1` 릴리스가 생기고, 켜 둔 예전 프로그램 창에는 새 버전 안내가 떠요.
+   (`VERSION` 을 안 바꾸고 프로그램 파일만 고치면 빌드 · 확인만 하고 릴리스는 그대로예요)
 
 내 PC 에서 직접 만들 때: `npm run build:uploader` → `dist-uploader/mumei-uploader.exe`. 확인: `node scripts/smoke-uploader.mjs dist-uploader/mumei-uploader.exe`
 
