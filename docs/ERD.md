@@ -1,7 +1,7 @@
 # 무명섬 ERD
 
 설명서 전체는 Claude 문서 "무명섬 설명서 · ERD" 에 있어요. 이 파일은 GitHub 에서 바로 볼 수 있는 관계도예요.
-기준: `supabase/migrations/20261027000000_init.sql`
+기준: `supabase/migrations/20261027000000_init.sql` + `20261028000000_results.sql`
 
 ```mermaid
 erDiagram
@@ -26,6 +26,8 @@ erDiagram
   auth_users |o--o{ admin_keys : "만든 사람 / 쓴 사람"
   auth_users |o--o{ tier_history : "바꾼 사람"
   auth_users |o--o{ rounds : "확정한 사람"
+  upload_devices |o--o{ rounds : "올린 장치"
+  auth_users |o--o{ upload_devices : "만든 사람"
 
   players {
     uuid id PK
@@ -68,6 +70,7 @@ erDiagram
   er_characters {
     integer code PK
     text name_ko
+    text name_en "CSV 영문 이름 매칭"
   }
   tier_history {
     bigint id PK
@@ -114,7 +117,9 @@ erDiagram
   }
   rounds {
     uuid id PK
-    uuid event_id FK
+    uuid event_id FK "확정 전엔 비어 있을 수 있음"
+    bigint game_id UK "게임 번호, 중복 방지"
+    uuid device_id FK
     smallint round_no
     text status "pending / held / confirmed"
     text source "device / manual"
@@ -189,6 +194,16 @@ erDiagram
   app_secrets {
     text name PK
     text value_hash
+  }
+  upload_devices {
+    uuid id PK
+    text name
+    text key_hash UK
+    text prefix
+    uuid created_by FK
+    timestamptz last_seen_at
+    text last_file
+    timestamptz revoked_at
   }
 ```
 
