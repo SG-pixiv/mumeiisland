@@ -117,7 +117,7 @@ select cron.schedule('er-sync-daily', '0 20 * * *',  -- 매일 05:00 (한국 시
    npx supabase functions deploy er-sync --project-ref <Supabase 프로젝트 ID> --use-api
    ```
    `er-sync` 는 실험체 영문 이름(CSV 는 영문)을 받아 오도록 바뀌어서 한 번 더 올려요. 다음 동기화 때 자동으로 채워져요.
-3. **게임 PC 업로드 프로그램**: 관리자 → **업로드 장치** → 장치 키 만들기 → 파일 3개(프로그램 · 실행 파일 · 설정 파일)를 한 폴더에 넣고 `start-mumei-uploader.bat` 실행 (Node.js 18 이상 필요)
+3. **게임 PC 업로드 프로그램**: 관리자 → **업로드 장치** → 장치 키 만들기 → **설정 코드 복사** → `mumei-uploader.exe` 받기 → 더블클릭하고 설정 코드 붙여 넣기 (Node.js 필요 없어요)
 4. 게임 결과 화면에서 **데이터 저장** → 관리자 → **결과 검토**에 판이 들어오면 확인하고 **확정**
 
 알아 둘 것
@@ -125,6 +125,19 @@ select cron.schedule('er-sync-daily', '0 20 * * *',  -- 매일 05:00 (한국 시
 - 처치자 불명(야생동물 · 금지구역 등) 사망은 −1 감점으로 자동 제안돼요. 최종 2팀이 남은 뒤의 사망이면 검토 화면에서 빼 주세요.
 - 업로드 프로그램이 없어도 결과 검토 화면에서 CSV 를 직접 올릴 수 있어요.
 - 사용자 설정 대전은 이리 API 에 기록이 남지 않아서 딜량은 쓰지 않아요. 내전 기록은 점수 기준이에요.
+
+#### 업로드 프로그램 exe 새 버전 내기
+프로그램 본체는 `public/uploader/mumei-uploader.cjs` 하나예요. exe 는 GitHub Actions(`.github/workflows/uploader.yml`)가 Windows 에서 만들고, 켜서 가짜 서버로 업로드까지 확인한 뒤 **Releases** 에 올려요. 업로드 장치 화면의 받기 버튼은 항상 최신 릴리스를 가리켜요.
+
+1. `mumei-uploader.cjs` 의 `VERSION` 을 올리고 커밋 · 푸시 (예: `1.0.1`)
+2. 태그 올리기
+   ```powershell
+   git tag uploader-v1.0.1
+   git push origin uploader-v1.0.1
+   ```
+3. GitHub → **Actions** 에서 "업로드 프로그램 exe" 가 초록색이 되면 끝. 켜 둔 예전 프로그램 창에는 새 버전 안내가 떠요.
+
+내 PC 에서 직접 만들 때: `npm run build:uploader` → `dist-uploader/mumei-uploader.exe`. 확인: `node scripts/smoke-uploader.mjs dist-uploader/mumei-uploader.exe`
 
 ### 11. 치지직 · 유튜브 연동 (3단계)
 선수 카드의 프로필 사진과 LIVE ON 을 자동으로 채워요. 선수 관리에서 치지직 방송국 주소나 유튜브 채널 주소(`https://www.youtube.com/@핸들`)를 넣어 두면 돼요.

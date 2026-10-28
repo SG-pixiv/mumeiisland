@@ -1,0 +1,70 @@
+# 업로드 프로그램 exe 를 Windows 에서 만들고, 켜서 확인한 뒤 GitHub Releases 에 올려요.
+#   새 버전 내기: public/uploader/mumei-uploader.cjs 의 VERSION 을 올리고 커밋 → git tag uploader-v1.0.1 → git push origin uploader-v1.0.1
+#   받는 주소(항상 최신): https://github.com/<계정>/<저장소>/releases/latest/download/mumei-uploader.exe
+# Actions 탭에서 "Run workflow" 로 돌리면 릴리스 없이 exe 만 만들어서 확인해요 (Artifacts 에서 받을 수 있어요).
+
+name: 업로드 프로그램 exe
+
+on:
+  push:
+    tags: ['uploader-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: 패키지 설치
+        run: npm ci
+
+      - name: 테스트
+        run: npm test
+
+      - name: exe 만들기
+        run: npm run build:uploader
+
+      - name: 켜 보기 (버전 · 설정 없을 때)
+        shell: pwsh
+        run: |
+          $v = (& .\dist-uploader\mumei-uploader.exe --version | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0) { throw "exe 가 켜지지 않았어요 (종료 코드 $LASTEXITCODE)" }
+          Write-Host "exe 버전: $v"
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and "uploader-v$v" -ne $env:GITHUB_REF_NAME) {
+            throw "태그($env:GITHUB_REF_NAME)와 프로그램 버전($v)이 달라요. mumei-uploader.cjs 의 VERSION 을 맞춰 주세요"
+          }
+          $env:MUMEI_NO_PROMPT = '1'
+          & .\dist-uploader\mumei-uploader.exe
+          if ($LASTEXITCODE -ne 1) { throw "설정이 없을 때 안내하고 끝나야 해요 (종료 코드 $LASTEXITCODE)" }
+          "UPLOADER_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 업로드 해 보기 (가짜 서버)
+        run: node scripts/smoke-uploader.mjs dist-uploader/mumei-uploader.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mumei-uploader-${{ env.UPLOADER_VERSION }}
+          path: |
+            dist-uploader/mumei-uploader.exe
+            dist-uploader/NODE-LICENSE.txt
+
+      - name: 릴리스에 올리기
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create $env:GITHUB_REF_NAME `
+            dist-uploader/mumei-uploader.exe dist-uploader/NODE-LICENSE.txt `
+            --title "무명섬 업로드 프로그램 v$env:UPLOADER_VERSION" `
+            --notes-file scripts/uploader-release.md `
+            --latest

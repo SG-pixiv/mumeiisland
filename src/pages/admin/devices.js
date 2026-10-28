@@ -3,9 +3,12 @@ import { html, mount, on, toast, errorText } from '../../lib/dom.js';
 import { select, rpc } from '../../lib/db.js';
 import { isDemo } from '../../lib/supabase.js';
 import { dateTimeShort } from '../../lib/fmt.js';
+import { makeConfigCode } from '../../lib/uploader-code.js';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL || 'https://<프로젝트 ID>.supabase.co';
 const ENDPOINT = `${SUPABASE_URL.replace(/\/+$/, '')}/functions/v1/upload-result`;
+// GitHub Actions(.github/workflows/uploader.yml)가 릴리스에 올린 최신 exe
+const EXE_URL = import.meta.env.VITE_UPLOADER_EXE_URL || 'https://github.com/SG-pixiv/mumeiisland/releases/latest/download/mumei-uploader.exe';
 
 startAdmin('devices', async (main) => {
   const state = { fresh: null, freshName: '', folder: '', copied: false, busy: false };
@@ -13,11 +16,9 @@ startAdmin('devices', async (main) => {
 
   const reload = async () => { devices = await select('upload_devices', { order: 'created_at', asc: false }); };
 
-  const configText = () => JSON.stringify({
-    endpoint: ENDPOINT,
-    deviceKey: state.fresh,
-    folder: state.folder.trim()
-  }, null, 2) + '\n';
+  const configObj = () => ({ endpoint: ENDPOINT, deviceKey: state.fresh, folder: state.folder.trim() });
+  const configText = () => JSON.stringify(configObj(), null, 2) + '\n';
+  const configCode = () => makeConfigCode(configObj());
 
   const step = (n, title, body) => html`<li style="display: grid; grid-template-columns: 40px minmax(0, 1fr); gap: 12px; align-items: start">
     <span class="medal sm" style="width: 34px; height: 34px">${n}</span><span style="display: grid; gap: 4px"><b style="font-family: var(--head); font-size: 17px">${title}</b>${body}</span></li>`;
@@ -30,16 +31,21 @@ startAdmin('devices', async (main) => {
         <div class="grow stack" style="gap: 18px">
           <section class="card ink"><h2>처음 한 번 설정하기</h2>
             <ol style="list-style: none; margin: 0; padding: 0; display: grid; gap: 16px">
-              ${step(1, '장치 키 만들기', html`<span class="muted" style="font-weight: 600">아래 "장치 키 만들기"에서 이름을 적고 만들어요. 키는 만든 직후 한 번만 보여요.</span>`)}
-              ${step(2, '파일 3개 내려받기', html`<span class="muted" style="font-weight: 600">게임 PC 에 폴더를 하나 만들고 (예: <code>C:\\mumei-uploader</code>) 세 파일을 같이 넣어요.</span>
-                <span class="flex" style="gap: 8px; margin-top: 4px">
-                  <a class="btn sm sky" href="/uploader/mumei-uploader.mjs" download="mumei-uploader.mjs">프로그램 받기</a>
-                  <a class="btn sm sky" href="/uploader/start-mumei-uploader.bat" download="start-mumei-uploader.bat">실행 파일 받기</a>
-                </span>
-                <small class="muted" style="font-weight: 600">프로그램 <code>mumei-uploader.mjs</code> · 실행 파일 <code>start-mumei-uploader.bat</code> · 설정 파일 <code>uploader.config.json</code> (1번에서 키를 만들면 받아요)</small>`)}
-              ${step(3, '켜 두고 게임하기', html`<span class="muted" style="font-weight: 600"><code>start-mumei-uploader.bat</code> 을 더블클릭하면 검은 창이 떠요. 창을 켜 둔 채로 게임하고, 판이 끝나면 결과 화면에서 <b style="color: var(--ink)">데이터 저장</b>만 누르면 돼요. 창에 "올림 ✓" 이 뜨면 성공이에요.</span>
-                <span class="muted" style="font-size: 13px; font-weight: 600">Node.js 18 이상이 필요해요 (https://nodejs.org). 이터널 리턴 폴더는 Steam 라이브러리에서 자동으로 찾아요.</span>`)}
+              ${step(1, '장치 키 만들기', html`<span class="muted" style="font-weight: 600">아래 "장치 키 만들기"에서 게임 PC 이름을 적고 만들면 <b style="color: var(--ink)">설정 코드</b>가 나와요. 코드는 이때 한 번만 보여요.</span>`)}
+              ${step(2, '프로그램 받기', html`<span class="muted" style="font-weight: 600">게임 PC 에서 받아 폴더 하나에 넣어 두세요 (예: <code>바탕 화면\\무명섬 업로드</code>). Node.js 없이 돌아가요.</span>
+                <span class="flex" style="gap: 8px; margin-top: 4px"><a class="btn sm pink" href="${EXE_URL}">mumei-uploader.exe 받기</a></span>
+                <small class="muted" style="font-weight: 600">다른 사람 PC 에 설치할 때는 이 받기 링크와 설정 코드만 보내 주면 돼요.</small>`)}
+              ${step(3, '켜고 설정 코드 붙여 넣기', html`<span class="muted" style="font-weight: 600">exe 를 더블클릭해요. <b style="color: var(--ink)">Windows의 PC 보호</b> 창이 뜨면 <b style="color: var(--ink)">추가 정보 → 실행</b>을 눌러요. 처음 한 번은 설정 코드를 물어보니 붙여 넣고 Enter 를 누르면 끝이에요.</span>
+                <span class="muted" style="font-size: 13px; font-weight: 600">이터널 리턴 폴더는 Steam 라이브러리에서 자동으로 찾아요. 못 찾으면 폴더 주소를 물어봐요.</span>`)}
+              ${step(4, '켜 두고 게임하기', html`<span class="muted" style="font-weight: 600">창을 켜 둔 채로 게임하고, 판이 끝나면 결과 화면에서 <b style="color: var(--ink)">데이터 저장</b>만 누르면 돼요. 창에 "올림 ✓" 이 뜨면 성공이에요.</span>`)}
             </ol>
+            <details style="margin-top: 14px; font-size: 13px; font-weight: 600"><summary class="muted">Node.js 로 직접 돌리기 (exe 대신)</summary>
+              <p class="muted" style="margin: 8px 0">Node.js 18 이상이 있으면 두 파일과 설정 파일 <code>uploader.config.json</code> 을 같은 폴더에 두고 <code>start-mumei-uploader.bat</code> 을 더블클릭해도 돼요.</p>
+              <span class="flex" style="gap: 8px">
+                <a class="btn sm ghost" href="/uploader/mumei-uploader.cjs" download="mumei-uploader.cjs">mumei-uploader.cjs</a>
+                <a class="btn sm ghost" href="/uploader/start-mumei-uploader.bat" download="start-mumei-uploader.bat">start-mumei-uploader.bat</a>
+              </span>
+            </details>
           </section>
 
           <section class="card"><h2>장치 키 만들기</h2>
@@ -53,8 +59,9 @@ startAdmin('devices', async (main) => {
             ${state.fresh ? html`<div role="status" class="stack" style="justify-items: center; text-align: center; gap: 10px; background: var(--sky-soft); border: 3px solid var(--ink); border-radius: 24px; padding: 18px">
               <span style="font-size: 13px; font-weight: 700">${state.freshName} 장치 키</span>
               <span style="font-family: Consolas, 'D2Coding', monospace; font-weight: 700; font-size: 26px; letter-spacing: 0.08em; background: var(--card); border: 2px solid var(--ink); border-radius: 16px; padding: 6px 18px; word-break: break-all">${state.fresh}</span>
-              <span class="flex" style="justify-content: center"><button class="btn pink" type="button" data-config>설정 파일 내려받기 (uploader.config.json)</button><button class="btn sky" type="button" data-copy>${state.copied ? '복사했어요' : '키 복사'}</button><button class="btn ghost" type="button" data-close>닫기</button></span>
-              <span style="font-size: 12px; font-weight: 700; color: var(--pink-ink)">키와 설정 파일은 지금 한 번만 받을 수 있어요. 잃어버리면 새로 만들고 예전 키는 해제해 주세요.</span>
+              <label class="field" style="width: 100%; text-align: left">설정 코드 <input readonly data-code value="${configCode()}" style="font-family: Consolas, 'D2Coding', monospace; font-size: 13px"><span class="hint">프로그램을 처음 켜면 물어보는 코드예요. 장치 키가 들어 있으니 설치할 사람에게만 보내 주세요.</span></label>
+              <span class="flex" style="justify-content: center"><button class="btn pink" type="button" data-copy>${state.copied ? '복사했어요' : '설정 코드 복사'}</button><button class="btn sky" type="button" data-config>설정 파일로 받기</button><button class="btn ghost" type="button" data-close>닫기</button></span>
+              <span style="font-size: 12px; font-weight: 700; color: var(--pink-ink)">설정 코드와 설정 파일은 지금 한 번만 받을 수 있어요. 잃어버리면 새로 만들고 예전 키는 해제해 주세요.</span>
               ${isDemo ? html`<span class="muted" style="font-size: 12px; font-weight: 600">지금은 예시 데이터라 진짜로 올라가지는 않아요.</span>` : ''}
             </div>` : ''}
           </section>
@@ -66,6 +73,7 @@ startAdmin('devices', async (main) => {
             <li>새로 생기거나 바뀐 파일만 보내요. 같은 판(gameId)은 한 번만 들어가요</li>
             <li>지금 시간 기준 진행 중인 내전의 다음 라운드로 들어가요. 못 찾으면 "내전 미지정"으로 들어가고, 결과 검토에서 고르면 돼요</li>
             <li>인터넷이 끊기면 잠시 뒤 다시 보내요</li>
+            <li>새 버전이 나오면 프로그램 창에 알려 줘요</li>
             <li>올라온 판은 관리자가 결과 검토에서 <b>확정</b>해야 공개돼요</li>
           </ul></section>
           <section class="card"><h2>안전장치</h2><ul style="margin: 0; padding-left: 18px; display: grid; gap: 6px; font-size: 13px; font-weight: 600">
@@ -108,11 +116,15 @@ startAdmin('devices', async (main) => {
     const a = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: 'uploader.config.json' });
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    toast('설정 파일을 받았어요. 프로그램이랑 같은 폴더에 넣어 주세요.');
+    toast('설정 파일을 받았어요. exe 옆이나 다운로드 폴더에 두면 프로그램이 찾아요.');
   });
-  on(main, 'click', '[data-copy]', async () => { try { await navigator.clipboard.writeText(state.fresh); } catch { /* 직접 복사 */ } state.copied = true; draw(); });
+  on(main, 'click', '[data-copy]', async () => {
+    try { await navigator.clipboard.writeText(configCode()); state.copied = true; draw(); }
+    catch { main.querySelector('[data-code]')?.select(); toast('자동 복사가 안 돼요. 선택된 코드를 Ctrl + C 로 복사해 주세요.', true); }
+  });
+  on(main, 'focusin', '[data-code]', (_e, el) => { el.select(); });
   on(main, 'click', '[data-close]', () => {
-    if (!confirm('닫으면 이 키와 설정 파일을 다시 받을 수 없어요. 설정 파일을 받았나요?')) return;
+    if (!confirm('닫으면 이 설정 코드와 설정 파일을 다시 받을 수 없어요. 복사하거나 받아 두었나요?')) return;
     state.fresh = null; draw();
   });
   on(main, 'click', '[data-revoke]', async (_e, b) => {
