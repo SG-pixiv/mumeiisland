@@ -78,20 +78,40 @@ function sideNav(active, pending) {
   </nav>`;
 }
 
+// 로그인 + 관리자 등록 여부 확인 (아니면 로그인 화면으로 보내고 null)
+async function adminSession(app) {
+  const back = encodeURIComponent(location.pathname + location.search);
+  try {
+    const session = await auth.session();
+    if (!session || !(await rpc('is_admin'))) { location.replace('/login?next=' + back); return null; }
+    rpc('touch_admin').catch(() => {});
+    return session;
+  } catch (e) {
+    mount(app, html`<main class="page">${errorBox(e)}</main>`);
+    return null;
+  }
+}
+
+// 메뉴 없는 좁은 관리자 화면 (OBS 조종판)
+export async function startAdminBare(render) {
+  const app = document.getElementById('app');
+  const session = await adminSession(app);
+  if (!session) return;
+  mount(app, html`<main id="main" class="bare-main"><p class="loading">불러오는 중…</p></main>`);
+  const main = document.getElementById('main');
+  try {
+    await render(main, { user: session.user });
+  } catch (e) {
+    console.error(e);
+    mount(main, errorBox(e));
+  }
+}
+
 // 관리자 페이지: 로그인 + 관리자 등록 여부를 확인하고 들어가요
 export async function startAdmin(active, render) {
   const app = document.getElementById('app');
-  const back = encodeURIComponent(location.pathname + location.search);
-  let session;
-  try {
-    session = await auth.session();
-    if (!session) { location.replace('/login?next=' + back); return; }
-    if (!(await rpc('is_admin'))) { location.replace('/login?next=' + back); return; }
-  } catch (e) {
-    mount(app, html`<main class="page">${errorBox(e)}</main>`);
-    return;
-  }
-  rpc('touch_admin').catch(() => {});
+  const session = await adminSession(app);
+  if (!session) return;
   const [isOwner, pendingRows] = await Promise.all([
     rpc('is_owner').catch(() => false),
     select('rounds', { eq: { status: 'pending' }, columns: 'id' }).catch(() => [])

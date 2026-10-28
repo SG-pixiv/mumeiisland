@@ -133,6 +133,15 @@ const demoRpc = {
     tables.upload_devices.push({ id: crypto.randomUUID(), name: p_name.trim(), key_hash: 'demo', prefix: k.slice(0, 4), created_by: 'demo-owner', created_at: new Date().toISOString(), last_seen_at: null, last_file: null, revoked_at: null });
     return k.match(/.{4}/g).join('-');
   },
+  set_live: ({ p_event, p_state, p_round }) => {
+    const ev = tables.events.find((e) => e.id === p_event);
+    if (!ev) throw new Error('내전을 찾지 못했어요');
+    const now = new Date().toISOString();
+    if (p_state !== 'idle') tables.events.forEach((e) => { if (e.id !== p_event && e.live_state !== 'idle') Object.assign(e, { live_state: 'idle', live_changed_at: now }); });
+    Object.assign(ev, { live_state: p_state, live_round: p_state === 'idle' ? ev.live_round : p_round, live_changed_at: now });
+    return null;
+  },
+  mvp_vote_count: ({ p_event }) => (tables.mvp_votes || []).filter((v) => v.event_id === p_event).length,
   revoke_device: ({ p_id }) => { const d = tables.upload_devices.find((x) => x.id === p_id); if (d) d.revoked_at = new Date().toISOString(); return null; },
   confirm_round: ({ p_round, p_event, p_round_no, p_teams, p_players }) => {
     const r = tables.rounds.find((x) => x.id === p_round);

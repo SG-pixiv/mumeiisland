@@ -9,7 +9,8 @@ const root = dirname(fileURLToPath(import.meta.url));
 export const pages = [
   'index', 'players', 'player', 'matches', 'match', 'schedule', 'draft', 'rules', 'login',
   'admin/index', 'admin/players', 'admin/tiers', 'admin/teams', 'admin/review',
-  'admin/schedule', 'admin/scoring', 'admin/access', 'admin/devices'
+  'admin/schedule', 'admin/scoring', 'admin/access', 'admin/devices', 'admin/live',
+  'overlay/live', 'overlay/standings', 'overlay/result'
 ];
 
 // 개발 서버에서도 /players 처럼 .html 없이 열리게 (배포 후에는 vercel.json 의 cleanUrls 가 처리)

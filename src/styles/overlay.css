@@ -1,0 +1,91 @@
+/* 방송 오버레이 (OBS 브라우저 소스) · 배경은 투명. 색 · 글꼴은 사이트와 같아요 */
+:root {
+  --ink: #3A2440; --muted: #7A6680; --line: #F6D3E4; --soft: #FFEAF3; --bg: #FFF6FA;
+  --pink: #F880B9; --pink-ink: #BE2F76; --sky: #8FDFF5; --sky-ink: #17708C; --red: #E5484D;
+  --t1: #6B3FC4; --t1s: #F1E8FF; --t2: #1B7A5A; --t2s: #E0F7EE; --t3: #9A5B00; --t3s: #FFF1D6;
+  --logo: "Bagel Fat One", "Jua", sans-serif;
+  --head: "Jua", "Noto Sans KR", sans-serif;
+  --body: "Nunito", "Noto Sans KR", "Malgun Gothic", sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; background: transparent; color: var(--ink); font-family: var(--body); overflow: hidden; }
+.ov-fit { transform: scale(var(--ov-size, 1)); transform-origin: top left; padding: 6px 8px 14px; width: max-content; }
+.ov-num { font-family: var(--body); font-weight: 800; font-variant-numeric: tabular-nums; }
+
+/* 순위 동그라미 */
+.ov-medal { border-radius: 50%; display: grid; place-items: center; font-weight: 800; background: #FFFFFF; border: 3px solid var(--line); }
+.ov-medal.m1 { background: var(--pink); border-color: var(--ink); }
+.ov-medal.m2 { background: var(--sky); border-color: var(--ink); }
+.ov-medal.m3 { background: var(--t1s); border-color: var(--ink); }
+
+/* ① LIVE 배지 */
+.ov-live { display: inline-flex; align-items: center; gap: 10px; background: #FFFFFF; border: 3px solid var(--ink); border-radius: 999px; box-shadow: 0 4px 0 var(--sky); padding: 6px 7px 6px 18px; }
+.ov-live b { font-family: var(--head); font-weight: 400; font-size: 22px; line-height: 1.2; white-space: nowrap; }
+.ov-pill { display: inline-flex; align-items: center; gap: 6px; font-family: var(--head); font-size: 17px; line-height: 1.2; border: 2px solid var(--ink); border-radius: 999px; padding: 2px 12px; white-space: nowrap; }
+.ov-pill.live { background: var(--soft); padding-left: 8px; }
+.ov-pill.playing { background: var(--pink); }
+.ov-pill.ended { background: var(--sky); }
+.ov-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--red); animation: ovblink 1.6s ease-in-out infinite; }
+@keyframes ovblink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .ov-dot { animation: none; } }
+
+/* ② 누적 순위 */
+.ov-board { width: 560px; background: #FFFFFF; border: 4px solid var(--ink); border-radius: 28px; box-shadow: 0 8px 0 var(--pink); padding: 22px 26px 20px; display: flex; flex-direction: column; gap: 12px; }
+.ov-board-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.ov-logo { font-family: var(--logo); font-size: 40px; line-height: 1.1; color: var(--pink); -webkit-text-stroke: 2px var(--ink); paint-order: stroke fill; }
+.ov-chip { font-family: var(--head); font-size: 20px; background: var(--pink); border: 3px solid var(--ink); border-radius: 999px; padding: 3px 16px; white-space: nowrap; }
+.ov-board-title { font-family: var(--head); font-size: 28px; line-height: 1.2; }
+.ov-grid { display: grid; grid-template-columns: 46px minmax(0, 1fr) repeat(var(--cols), 40px) 70px; column-gap: 8px; align-items: center; }
+.ov-grid.head { font-size: 13px; font-weight: 800; color: var(--muted); border-bottom: 2px dashed var(--line); padding-bottom: 6px; }
+.ov-grid .r { text-align: right; }
+.ov-grid .ov-medal { width: 42px; height: 42px; font-size: 20px; }
+.ov-team { display: grid; min-width: 0; line-height: 1.25; }
+.ov-team b { font-family: var(--head); font-weight: 400; font-size: 23px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-team small { font-family: "Noto Sans KR", sans-serif; font-size: 14px; font-weight: 500; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-round { font-size: 17px; font-weight: 700; color: var(--muted); }
+.ov-total { font-size: 28px; }
+.ov-foot { font-size: 13px; font-weight: 700; color: var(--muted); border-top: 2px dashed var(--line); padding-top: 8px; }
+.ov-empty { font-family: var(--head); font-size: 20px; color: var(--muted); text-align: center; padding: 10px 0; }
+
+/* ③ 라운드 결과 (1920 × 1080 장면) */
+.ov-scene { width: 1920px; height: 1080px; padding: 52px 72px; display: flex; flex-direction: column; gap: 26px; }
+.ov-scene.dots { background-color: var(--bg); background-image: radial-gradient(var(--line) 2px, transparent 2.4px); background-size: 32px 32px; }
+.ov-scene-top { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; }
+.ov-scene-top .ov-logo { font-size: 44px; }
+.ov-date { font-family: var(--head); font-size: 24px; background: #FFFFFF; border: 3px solid var(--ink); border-radius: 999px; padding: 4px 18px; white-space: nowrap; }
+.ov-scene h1 { margin: 0; font-family: var(--head); font-weight: 400; font-size: 88px; line-height: 1.05; }
+.ov-cards { display: flex; align-items: flex-end; gap: 22px; }
+.ov-card { border: 4px solid var(--ink); border-radius: 28px; box-shadow: 0 8px 0 var(--pink); padding: 16px 30px; display: flex; flex-direction: column; gap: 4px; }
+.ov-card small { font-size: 18px; font-weight: 800; }
+.ov-card strong { font-family: var(--head); font-weight: 400; font-size: 40px; line-height: 1.15; white-space: nowrap; }
+.ov-card.leader { background: var(--pink); box-shadow: 0 8px 0 var(--sky); padding: 18px 30px; gap: 2px; }
+.ov-card.mvp { background: var(--t3s); flex-direction: row; align-items: center; gap: 18px; padding: 14px 30px 14px 16px; }
+.ov-card.mvp .trophy { width: 80px; height: 80px; flex: 0 0 auto; border-radius: 50%; background: #FFFFFF; border: 3px solid var(--ink); display: grid; place-items: center; }
+.ov-card.mvp small { color: var(--t3); }
+.ov-card.mvp strong { font-size: 44px; line-height: 1.1; }
+.ov-card .sub { font-size: 18px; font-weight: 800; color: var(--muted); }
+.ov-card.vote { background: #FFFFFF; gap: 6px; }
+.ov-card.vote small { display: flex; align-items: center; gap: 10px; color: var(--pink-ink); }
+.ov-bar { display: block; width: 340px; height: 14px; border-radius: 999px; background: var(--soft); border: 2px solid var(--ink); overflow: hidden; }
+.ov-bar span { display: block; height: 100%; background: var(--pink); }
+.ov-table { background: #FFFFFF; border: 4px solid var(--ink); border-radius: 30px; box-shadow: 0 8px 0 var(--pink); padding: 14px 28px; display: flex; flex-direction: column; }
+.ov-rgrid { display: grid; grid-template-columns: 70px 300px minmax(0, 1fr) 80px 120px 120px 90px 120px 150px; column-gap: 14px; align-items: center; padding: 11px 0; border-bottom: 2px solid var(--soft); }
+.ov-rgrid.head { font-size: 16px; font-weight: 800; color: var(--muted); padding: 8px 0 10px; border-bottom: 2px dashed var(--line); }
+.ov-rgrid:last-child { border-bottom: none; }
+.ov-rgrid .r { text-align: right; }
+.ov-rgrid .ov-medal { width: 54px; height: 54px; font-size: 26px; }
+.ov-rgrid .name { font-family: var(--head); font-size: 32px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ov-rgrid .big { font-size: 26px; font-weight: 800; }
+.ov-rgrid .dim { color: var(--muted); }
+.ov-rgrid .pen { color: var(--pink-ink); }
+.ov-rgrid .total { font-size: 38px; font-weight: 800; }
+.ov-rgrid .cum { font-size: 22px; font-weight: 800; color: var(--sky-ink); }
+.ov-members { display: flex; gap: 12px; min-width: 0; overflow: hidden; }
+.ov-member { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; font-family: "Noto Sans KR", sans-serif; font-size: 19px; font-weight: 700; }
+.ov-tier { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-family: var(--body); font-size: 14px; font-weight: 800; }
+.ov-tier.t1 { background: var(--t1s); color: var(--t1); }
+.ov-tier.t2 { background: var(--t2s); color: var(--t2); }
+.ov-tier.t3 { background: var(--t3s); color: var(--t3); }
+.ov-mvp-tag { font-family: var(--body); font-size: 13px; font-weight: 800; background: var(--t3s); color: var(--t3); border: 2px solid var(--ink); border-radius: 999px; padding: 1px 8px; }
+.ov-note { font-size: 18px; font-weight: 700; color: var(--muted); }
+.ov-wait { flex: 1 1 auto; display: grid; place-items: center; font-family: var(--head); font-size: 48px; color: var(--muted); }

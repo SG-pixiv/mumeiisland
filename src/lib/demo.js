@@ -151,6 +151,9 @@ function build() {
   events.find((e) => e.id === E(1)).mvp_vote_result = { counts: { [T(1)]: 4, [T(5)]: 4, [T(9)]: 2 }, tied: [T(1), T(5)], picked: T(1), drawn: true, votes: 10 };
   events.find((e) => e.id === E(2)).mvp_vote_result = { counts: { [T(2)]: 6, [T(6)]: 3, [T(10)]: 2 }, tied: [T(2)], picked: T(2), drawn: false, votes: 11 };
   events.forEach((e) => { e.mvp_vote_status = e.mvp_vote_result ? 'closed' : 'none'; });
+  // 방송 오버레이 (7단계): 10월 24일 내전 4라운드 결과 파일이 올라와서 "끝"이 된 상태
+  events.forEach((e) => { e.live_state = 'idle'; e.live_round = null; e.live_changed_at = null; });
+  Object.assign(events.find((e) => e.id === E(2)), { live_state: 'ended', live_round: 4, live_changed_at: iso('2026-10-24T23:12:00+09:00') });
 
   return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes };
 }

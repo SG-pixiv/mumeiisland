@@ -248,3 +248,35 @@ span.lock { cursor: default; width: 30px; height: 30px; }
 .table-wrap { min-width: 0; max-width: 100%; }
 .btn, .chip, .tier { white-space: nowrap; }
 .table-wrap { position: relative; }
+
+/* 방송 진행판 (대시보드 · OBS 조종판) */
+.live-card { background: var(--card); border: 3px solid var(--ink); border-radius: 28px; box-shadow: 0 6px 0 var(--sky); padding: 20px 22px; display: grid; gap: 12px; min-width: 0; }
+.live-card h2 { font-family: var(--head); font-size: 22px; }
+.live-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+.live-pick select { font-weight: 700; min-height: 40px; max-width: 100%; border: 2px solid var(--line); border-radius: 14px; background: var(--card); padding: 4px 10px; }
+.live-now { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.live-state { display: inline-flex; align-items: center; gap: 8px; font-family: var(--head); font-size: 28px; line-height: 1.2; }
+.live-state.playing { color: var(--pink-ink); }
+.live-state.ended { color: var(--sky-ink); }
+.live-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--red); animation: liveblink 1.6s ease-in-out infinite; }
+@keyframes liveblink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+.live-now small { font-weight: 700; }
+.live-buttons { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.live-main { min-width: 190px; font-size: 20px; }
+.live-step { display: inline-flex; align-items: center; gap: 6px; }
+.live-step .btn { width: 44px; min-height: 44px; padding: 0; font-size: 20px; }
+.live-step .num { min-width: 30px; text-align: center; font-size: 22px; }
+.live-hint { margin: 0; font-size: 13px; font-weight: 600; color: var(--muted); }
+.live-mvp { margin: 0; font-weight: 600; background: var(--t3s); border-radius: 14px; padding: 8px 12px; }
+.live-card.compact { padding: 14px; border-radius: 22px; gap: 10px; }
+.live-card.compact .live-main { flex: 1 1 100%; min-height: 64px; font-size: 24px; }
+.live-card.compact .live-state { font-size: 24px; }
+
+/* OBS 조종판 (좁은 화면) */
+.bare-main { max-width: 520px; margin: 0 auto; padding: 12px 12px 40px; display: grid; gap: 12px; }
+.bare-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.bare-head b { font-family: var(--head); font-size: 18px; font-weight: 400; }
+.url-row { display: grid; gap: 4px; }
+.url-row .flex { flex-wrap: nowrap; }
+.url-row input { flex: 1 1 auto; min-width: 0; font-family: Consolas, "D2Coding", monospace; font-size: 12px; border: 2px solid var(--line); border-radius: 12px; padding: 6px 8px; background: var(--bg); }

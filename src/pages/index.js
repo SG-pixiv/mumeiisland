@@ -52,7 +52,7 @@ startPublic('home', async (main) => {
           ${live.map((p) => html`<a class="card" style="gap: 12px; padding: 16px; color: var(--ink); text-decoration: none; border-radius: 24px" href="${liveHref(p) || '/player?id=' + p.id}"${liveHref(p) ? raw(' target="_blank" rel="noopener"') : ''}>
             <span class="flex" style="gap: 12px; flex-wrap: nowrap; min-width: 0">${avatar(p, 'sm')}<span style="display: grid; min-width: 0"><span class="flex" style="gap: 6px; flex-wrap: nowrap; min-width: 0"><span style="font-family: var(--head); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${p.name}</span>${liveBadge(true)}</span><span class="muted" style="font-size: 13px; font-weight: 600">${p.tier}티어 · ${PLATFORM_LABEL[p.livePlatform] || '방송'}</span></span></span>
             ${p.liveTitle ? html`<span style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${p.liveTitle}</span>` : ''}
-            <span class="muted" style="font-size: 13px">${p.liveViewers ? html`시청자 <b class="num" style="color: var(--ink)">${num(p.liveViewers)}</b> · ` : ''}눌러서 놀러 가기!</span>
+            <span class="muted" style="font-size: 13px">눌러서 놀러 가기!</span>
           </a>`)}
         </div>
       </section>`

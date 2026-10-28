@@ -4,6 +4,8 @@ import { select, rpc } from '../../lib/db.js';
 import { loadEvents, nextEvent, loadPlayers } from '../../lib/api.js';
 import { dateKo, timeKo, FORMAT_LABEL, dateTimeShort } from '../../lib/fmt.js';
 import { isDemo } from '../../lib/supabase.js';
+import { mountLiveControl } from '../../components/live-control.js';
+import { liveReady } from '../../lib/live-api.js';
 
 startAdmin('home', async (main, { user }) => {
  const render = async () => {
@@ -40,7 +42,8 @@ startAdmin('home', async (main, { user }) => {
     pending.length && [`결과 검토 대기 ${pending.length}건`, '확정하면 기록과 랭킹에 반영돼요', '/admin/review', '검토하기'],
     !events.length && ['첫 내전 일정 만들기', '날짜 · 방식 · 참가자를 정해요', '/admin/schedule', '일정 관리'],
     admins.length < 2 && ['운영진 초대하기', '권한 관리에서 관리자 키를 만들어 전해 주세요', '/admin/access', '권한 관리'],
-    links === null && ['디스코드 봇용 DB 추가하기', 'Supabase SQL Editor 에서 20261028080000_discord_bot.sql 을 실행해 주세요 (README 14번)', '/admin', '확인']
+    links === null && ['디스코드 봇용 DB 추가하기', 'Supabase SQL Editor 에서 20261028080000_discord_bot.sql 을 실행해 주세요 (README 14번)', '/admin', '확인'],
+    !liveReady(events) && ['방송 오버레이용 DB 추가하기', 'Supabase SQL Editor 에서 20261028100000_overlay.sql 을 실행해 주세요 (README 15번)', '/admin/live', '확인']
   ].filter(Boolean);
   const linkCard = links && links.length ? html`<section class="card ink"><div class="card-head"><h2>디스코드 연결 요청 ${links.length}건</h2><small class="muted" style="font-weight: 600">봇의 /연결 게임닉네임</small></div>
     <ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 8px">${links.map((r) => {
@@ -56,6 +59,7 @@ startAdmin('home', async (main, { user }) => {
   mount(main, html`
     <div><h1>대시보드</h1><p class="lead">어서 오세요! ${dateKo(new Date())}, ${next ? `다음 내전까지 ${Math.max(0, Math.ceil((new Date(next.starts_at) - Date.now()) / 86400000))}일 남았답니다.` : '아직 잡힌 내전이 없어요.'}</p></div>
     ${isDemo ? html`<p class="notice" style="margin: 0">지금은 예시 데이터로 돌아가는 데모 모드예요. 바꾼 내용은 새로고침하면 사라져요. Supabase 를 연결하면 진짜로 저장돼요.</p>` : ''}
+    ${events.length ? html`<div data-live-control></div>` : ''}
     ${next ? html`<section class="hero" style="padding: 26px 28px; align-items: center">
       <div style="flex: 999 1 320px; display: grid; gap: 8px"><span class="sticker">다음 내전 · ${({ plan: '예정', open: '모집 중', fixed: '확정', done: '완료' })[next.status]}</span>
         <h2 class="big" style="font-size: 34px">${dateKo(next.starts_at)} ${timeKo(next.starts_at)}</h2>
@@ -77,6 +81,8 @@ startAdmin('home', async (main, { user }) => {
         <p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">${loginLabel(user)}</p>
       </section>
     </div>`);
+  const liveBox = main.querySelector('[data-live-control]');
+  if (liveBox) mountLiveControl(liveBox);
  };
   on(main, 'click', '[data-link]', async (_e, b) => {
     const ok = b.dataset.ok === '1';

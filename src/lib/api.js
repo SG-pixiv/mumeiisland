@@ -27,7 +27,6 @@ export function normPlayer(row, rank, statRows = [], season = null) {
     // 20분 넘게 확인하지 못한 LIVE ON 은 숨겨요 (방송 확인 서버 함수가 멈춰도 계속 켜져 있지 않게)
     isLive: !!row.is_live && (!row.live_checked_at || Date.now() - Date.parse(row.live_checked_at) < 20 * 60000),
     liveTitle: row.live_title || '',
-    liveViewers: row.live_viewers,
     livePlatform: row.live_platform || (row.is_live ? (row.chzzk_channel_id ? 'chzzk' : 'youtube') : null),
     liveUrl: row.live_url || '',
     liveStartedAt: row.live_started_at || null,
