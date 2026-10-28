@@ -2,7 +2,7 @@
 // db = Supabase 클라이언트 (비밀 키 · service_role). 테스트에서는 가짜 DB 를 넣어요.
 
 import {
-  pickSignupEvent, pickAnnounceEvent, pickMvpEvent, pickOpenVoteEvent, eventChoices,
+  shortKst, pickSignupEvent, pickAnnounceEvent, pickMvpEvent, pickOpenVoteEvent, eventChoices,
   joinProblem, leaveProblem, voteProblem, tally, signupMessage, mvpMessage, mvpResultMessage
 } from './logic.js';
 
@@ -57,8 +57,14 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
     return mvpMessage(event, cands, (votes ?? []).length, cands.length);
   };
 
+  /** 무명섬 웹 관리자인 디스코드 계정인지 (해제된 사람 빼고) */
+  const webAdmin = async (discordId) => {
+    const rows = must(await db.from('admins').select('user_id, discord_id, discord_name, role, revoked_at').eq('discord_id', id(discordId))) ?? [];
+    return rows.find((r) => !r.revoked_at) ?? null;
+  };
+
   return {
-    allEvents, eventById, playerByDiscord, participants, getMessage, saveMessage, dropMessage, signupPayload, mvpPayload,
+    webAdmin, allEvents, eventById, playerByDiscord, participants, getMessage, saveMessage, dropMessage, signupPayload, mvpPayload,
 
     /** 내전 자동완성 */
     async eventChoices(query) { return eventChoices(await allEvents(), query, now()); },
@@ -203,10 +209,39 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       return { ok: true, event, result, announce: mvpResultMessage(event, result, nameOf), old: await getMessage(event.id, 'mvp'), payload: await mvpPayload(event), mvpName: nameOf(result.picked) };
     },
 
-    /** /관리자키 (서버 관리자만 — 권한 확인은 index.js) */
+    /** /관리자키 [유저]: 그 디스코드 계정만 쓸 수 있는 24시간 키 (권한 확인은 router) */
     async adminKey({ discordId, discordName }) {
+      const already = await webAdmin(discordId);
+      if (already) return { ok: false, text: `${discordName || '그 사람'} 님은 이미 무명섬 관리자예요. 디스코드로 로그인만 하면 돼요.` };
       const key = must(await db.rpc('bot_create_admin_key', { p_discord_id: id(discordId), p_discord_name: discordName || '' }));
       return { ok: true, key };
+    },
+
+    /** /관리자목록: 지금 관리자 · 안 쓴 키 */
+    async adminList() {
+      const [admins, keys] = await Promise.all([
+        db.from('admins').select('discord_id, discord_name, role, registered_via, last_seen_at, revoked_at, created_at').order('created_at', { ascending: true }).then(must),
+        db.from('admin_keys').select('id, expires_at, used_at, revoked_at').then(must)
+      ]);
+      const active = (admins ?? []).filter((a) => !a.revoked_at);
+      const unused = (keys ?? []).filter((k) => !k.used_at && !k.revoked_at && Date.parse(k.expires_at) > now()).length;
+      const lines = active.map((a) => `${a.role === 'owner' ? '👑' : '🛡️'} **${a.discord_name || '이름 없음'}**${a.role === 'owner' ? ' (소유자)' : ''} · ${a.registered_via}${a.last_seen_at ? ` · 마지막 접속 ${shortKst(a.last_seen_at)}` : ''}`);
+      return { ok: true, text: [`무명섬 관리자 ${active.length}명 · 안 쓴 키 ${unused}개`, ...lines, siteUrl ? `자세히: ${siteUrl}/admin/access` : ''].filter(Boolean).join('\n') };
+    },
+
+    /** /관리자해제 유저: 무명섬 소유자만. 그 사람 앞으로 남은 키도 취소 */
+    async revokeAdmin({ byDiscordId, targetDiscordId, targetName }) {
+      const me = await webAdmin(byDiscordId);
+      if (me?.role !== 'owner') return { ok: false, text: '관리자 해제는 무명섬 소유자만 할 수 있어요.' };
+      const rows = (must(await db.from('admins').select('user_id, discord_name, role, revoked_at').eq('discord_id', id(targetDiscordId))) ?? []).filter((r) => !r.revoked_at);
+      if (rows.some((r) => r.role === 'owner')) return { ok: false, text: '소유자는 해제할 수 없어요.' };
+      const keys = (must(await db.from('admin_keys').select('id, used_at, revoked_at').eq('target_discord', id(targetDiscordId).toLowerCase())) ?? []).filter((k) => !k.used_at && !k.revoked_at);
+      const stamp = new Date(now()).toISOString();
+      for (const k of keys) must(await db.from('admin_keys').update({ revoked_at: stamp }).eq('id', k.id));
+      const keyNote = keys.length ? ` 안 쓴 키 ${keys.length}개도 취소했어요.` : '';
+      if (!rows.length) return { ok: !!keys.length, text: `${targetName || '그 사람'} 님은 무명섬 관리자가 아니에요.${keyNote}` };
+      for (const r of rows) must(await db.from('admins').update({ revoked_at: stamp }).eq('user_id', r.user_id));
+      return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };
     },
 
     /** 주기적으로 다시 그릴 메시지: 끝나지 않은 내전의 공지 · 투표 중인 MVP */

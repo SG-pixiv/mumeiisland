@@ -30,6 +30,9 @@ const router = createRouter({
   },
   editMessage: async (channelId, messageId, payload) => {
     await (await channelOf(channelId)).messages.edit(messageId, payload);
+  },
+  sendDM: async (userId, content) => {
+    await (await client.users.fetch(userId)).send({ content });
   }
 });
 

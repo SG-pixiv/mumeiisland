@@ -7,7 +7,7 @@ export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags
 const ADMINISTRATOR = 1n << 3n;         // 서버 관리자 권한
 const GONE = new Set([10003, 10008]);   // 채널 · 메시지가 지워졌어요
 
-export function createRouter({ service, guildId, siteUrl, sendMessage, editMessage, log = console }) {
+export function createRouter({ service, guildId, siteUrl, sendMessage, editMessage, sendDM = async () => { throw new Error('DM 을 보낼 수 없어요'); }, log = console }) {
   const isAdmin = (i) => !!i.memberPermissions?.has?.(ADMINISTRATOR);
   const displayName = (i) => i.member?.displayName || i.user?.globalName || i.user?.username || '';
   const eph = (content) => ({ content, flags: EPHEMERAL });
@@ -45,6 +45,19 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
     await i.reply(eph('서버 관리자만 쓸 수 있는 명령어예요.'));
     return false;
   }
+  /** 서버 관리자 또는 무명섬 웹 관리자 */
+  async function staffOnly(i) {
+    if (isAdmin(i) || (await service.webAdmin(i.user.id))) return true;
+    await i.reply(eph('서버 관리자나 무명섬 관리자만 쓸 수 있는 명령어예요.'));
+    return false;
+  }
+  const keyText = (key, forName) => [
+    `🔑 무명섬 관리자 키: \`${key}\``,
+    `• 24시간 동안, **${forName ? `${forName} 님의 디스코드 계정` : '지금 이 디스코드 계정'}으로 로그인했을 때만** 쓸 수 있어요. 한 번 쓰면 사라져요.`,
+    `• ${siteUrl}/login 에서 디스코드로 로그인 → "관리자 키" 칸에 붙여 넣으면 끝!`,
+    '• 다른 사람에게 보여 주지 마세요.'
+  ].join('\n');
+  const userName = (i, opt) => i.options.getMember?.(opt)?.displayName || i.options.getUser(opt)?.globalName || i.options.getUser(opt)?.username || '그 사람';
 
   async function handle(i) {
     if (guildId && i.guildId && i.guildId !== guildId) {
@@ -128,17 +141,33 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
         return i.editReply({ content: `발표했어요! MVP는 **${r.mvpName}**${r.result.drawn ? ' (공동 1위 추첨)' : ''}. 무명섬 내전 기록에도 저장됐어요.` });
       }
       case '관리자키': {
-        if (!(await adminOnly(i))) return;
+        if (!(await staffOnly(i))) return;
         await i.deferReply({ flags: EPHEMERAL });
-        const r = await service.adminKey({ discordId: i.user.id, discordName: displayName(i) });
-        return i.editReply({
-          content: [
-            `🔑 무명섬 관리자 키: \`${r.key}\``,
-            '• 24시간 동안, **지금 이 디스코드 계정으로 로그인했을 때만** 쓸 수 있어요.',
-            `• ${siteUrl}/login 에서 디스코드로 로그인 → "관리자 키" 칸에 붙여 넣으면 끝!`,
-            '• 이 메시지는 나만 보여요. 다른 사람에게 보여 주지 마세요.'
-          ].join('\n')
-        });
+        const target = i.options.getUser('유저');
+        if (target?.bot) return i.editReply({ content: '봇에게는 관리자 키를 줄 수 없어요.' });
+        const other = target && target.id !== i.user.id;
+        const name = other ? userName(i, '유저') : displayName(i);
+        const r = await service.adminKey({ discordId: other ? target.id : i.user.id, discordName: name });
+        if (!r.ok) return i.editReply({ content: r.text });
+        if (!other) return i.editReply({ content: keyText(r.key) + '\n• 이 메시지는 나만 보여요.' });
+        try {
+          await sendDM(target.id, `${displayName(i)} 님이 무명섬 관리자 키를 보냈어요!\n` + keyText(r.key));
+          return i.editReply({ content: `${name} 님에게 DM 으로 관리자 키를 보냈어요. (24시간 · 그 계정으로만 쓸 수 있어요)` });
+        } catch {
+          return i.editReply({ content: `${name} 님의 DM 이 막혀 있어서 대신 보여 드려요. 이 키를 전해 주세요.\n` + keyText(r.key, name) });
+        }
+      }
+      case '관리자목록': {
+        if (!(await staffOnly(i))) return;
+        await i.deferReply({ flags: EPHEMERAL });
+        return i.editReply({ content: (await service.adminList()).text });
+      }
+      case '관리자해제': {
+        await i.deferReply({ flags: EPHEMERAL });
+        const target = i.options.getUser('유저');
+        if (!target) return i.editReply({ content: '관리자에서 뺄 사람을 골라 주세요.' });
+        const r = await service.revokeAdmin({ byDiscordId: i.user.id, targetDiscordId: target.id, targetName: userName(i, '유저') });
+        return i.editReply({ content: r.text });
       }
       default:
         return i.reply(eph('모르는 명령어예요.'));

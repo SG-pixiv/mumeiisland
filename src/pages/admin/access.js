@@ -3,6 +3,27 @@ import { html, mount, on, toast, errorText } from '../../lib/dom.js';
 import { select, rpc } from '../../lib/db.js';
 import { dateTimeShort } from '../../lib/fmt.js';
 
+// 디스코드 봇 명령어 (bot/src/commands.js 와 같아요)
+const BOT_COMMANDS = [
+  ['누구나', [
+    ['/연결 게임닉네임', '내 디스코드 계정을 무명섬 선수와 연결 요청 → 대시보드에서 승인하면 끝'],
+    ['/연결해제', '내 연결 풀기 (대기 중인 연결 요청도 취소)'],
+    ['/내정보', '연결된 선수 · 티어 · 솔로 랭크 점수 · 신청한 내전'],
+    ['/참가 [내전]', '참가 신청 (비우면 모집 중인 가장 가까운 내전). 공지의 [참가하기] 버튼도 같아요'],
+    ['/참가취소 [내전]', '참가 취소 (팀이 짜인 뒤에는 운영진이 직접)']
+  ]],
+  ['서버 관리자', [
+    ['/내전공지 [내전]', '참가 버튼이 달린 공지를 그 채널에 올려요. "예정" 내전은 "참가 모집 중"으로 바뀌어요'],
+    ['/mvp 시작 [내전]', '참가자끼리 MVP 투표 (자기 자신 X, 마감 전까지 바꾸기 O)'],
+    ['/mvp 마감 [내전]', '최다 득표가 MVP, 공동 1위면 추첨 → 내전 기록에 저장'],
+    ['/관리자키 [@유저]', '그 사람 계정으로만 쓸 수 있는 24시간 키를 DM 으로 (비우면 나). 무명섬 관리자도 쓸 수 있어요'],
+    ['/관리자목록', '지금 관리자와 안 쓴 키 개수 (무명섬 관리자도 쓸 수 있어요)']
+  ]],
+  ['무명섬 소유자', [
+    ['/관리자해제 @유저', '바로 관리자 화면에 못 들어오게 막고, 그 사람 앞으로 남은 키도 취소해요']
+  ]]
+];
+
 startAdmin('access', async (main, { isOwner }) => {
   const state = { lock: 'any', fresh: null, freshFor: '', copied: false, busy: false };
   let keys = [], admins = [];
@@ -45,8 +66,10 @@ startAdmin('access', async (main, { isOwner }) => {
         </section>
       </div>
       <div class="side stack" style="gap: 18px">
-        <section class="card" style="border-color: var(--sky-ink)"><h2>디스코드 봇 명령어</h2><span class="chip sky plain" style="justify-self: start">봇 만들 때 붙일 예정</span>
-          ${[['/관리자키 @유저', '관리자만', '그 사람에게 DM으로 1회용 키를 보내요. 그 디스코드 계정에서만 쓸 수 있어요.'], ['/관리자해제 @유저', '소유자만', '바로 관리자 페이지에 못 들어오게 막아요.'], ['/관리자목록', '관리자만', '지금 관리자와 안 쓴 키 개수를 보여줘요.']].map(([c, w, d]) => html`<div style="display: grid; gap: 2px; background: var(--sky-soft); border-radius: 16px; padding: 10px 12px"><code style="font-weight: 700">${c}</code><small style="font-weight: 700; color: var(--sky-ink)">${w}</small><span style="font-size: 13px; font-weight: 600">${d}</span></div>`)}
+        <section class="card" style="border-color: var(--sky-ink)"><h2>디스코드 봇 명령어</h2>
+          ${BOT_COMMANDS.map(([group, list]) => html`<div class="stack" style="gap: 6px"><b style="font-family: var(--head); font-size: 15px; color: var(--sky-ink)">${group}</b>
+            ${list.map(([c, d]) => html`<div style="display: grid; gap: 2px; background: var(--sky-soft); border-radius: 16px; padding: 8px 12px"><code style="font-weight: 700">${c}</code><span style="font-size: 13px; font-weight: 600">${d}</span></div>`)}</div>`)}
+          <small class="muted" style="font-weight: 600">관리자 명령어는 디스코드 서버 관리자에게만 보여요. 봇 답장은 대부분 나만 보이게 와요. 설치 · 서버 옮기기는 GitHub 의 bot/README.md 를 봐 주세요.</small>
         </section>
         <section class="card"><h2>안전장치</h2><ul style="margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; font-weight: 600">
           <li>키는 1회용이고, 유효 시간이 지나면 못 써요</li><li>키 원문은 저장하지 않고 암호화한 값만 남겨요</li><li>키를 5번 틀리면 10분 동안 막혀요</li><li>관리자 기능을 쓸 때마다 권한을 다시 확인해서, 해제하면 바로 막혀요</li><li>소유자는 처음 한 번 소유자 키로 등록하고, 해제할 수 없어요</li></ul></section>

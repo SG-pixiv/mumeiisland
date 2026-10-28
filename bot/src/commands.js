@@ -20,5 +20,13 @@ export const commands = [
       { type: 1, name: '마감', description: '투표를 마감하고 MVP 를 발표해요 (공동 1위는 추첨)', options: [eventOption('비워 두면 투표 중인 내전')] }
     ]
   },
-  { name: '관리자키', description: '무명섬 웹 관리자 키 받기 (서버 관리자 · 24시간 · 나만 쓸 수 있어요)', default_member_permissions: ADMIN }
+  {
+    name: '관리자키', description: '무명섬 웹 관리자 키 (서버 관리자 · 24시간 · 받은 사람 계정으로만 쓸 수 있어요)', default_member_permissions: ADMIN,
+    options: [{ type: 6, name: '유저', description: '키를 줄 사람 (DM 으로 보내요). 비우면 나', required: false }]
+  },
+  { name: '관리자목록', description: '무명섬 관리자와 안 쓴 키 개수 (서버 관리자)', default_member_permissions: ADMIN },
+  {
+    name: '관리자해제', description: '무명섬 웹 관리자에서 빼요 (무명섬 소유자만)', default_member_permissions: ADMIN,
+    options: [{ type: 6, name: '유저', description: '관리자에서 뺄 사람', required: true }]
+  }
 ].map((c) => ({ ...c, contexts: [0] }));   // 서버 안에서만 (DM 에서는 안 보여요)
