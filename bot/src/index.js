@@ -44,7 +44,13 @@ client.once(Events.ClientReady, async (c) => {
   }
   // 웹에서 참가자를 바꿔도 공지 인원이 맞게 몇 분마다 다시 그리고, 대시보드에 "켜짐" 신호를 남겨요
   const beat = () => db.from('bot_status').upsert({ id: 1, bot_tag: c.user.tag, guild_id: cfg.guildId, last_seen_at: new Date().toISOString() })
-    .then(({ error }) => { if (error) log.warn(`[신호] ${error.message} (6단계 SQL 을 실행했는지 확인해 주세요)`); });
+    .then(({ error }) => {
+      if (!error) return;
+      const hint = /row-level security/i.test(error.message)
+        ? 'SUPABASE_SECRET_KEY 가 비밀 키(sb_secret_...)가 아니에요. 지금 키로는 참가 신청 · 투표가 막혀요'
+        : '6단계 SQL 을 실행했는지 확인해 주세요';
+      log.warn(`[신호] ${error.message} → ${hint}`);
+    });
   const tick = () => Promise.all([router.refreshAll(), beat()]).catch((e) => log.warn(`[갱신] ${e?.message ?? e}`));
   tick();
   setInterval(tick, cfg.refreshMinutes * 60_000);
