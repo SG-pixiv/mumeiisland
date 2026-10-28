@@ -11,7 +11,7 @@
 //   (supabase/config.toml 에 verify_jwt = false. 장치 키로 직접 확인해요)
 
 import { createClient } from 'jsr:@supabase/supabase-js@2';
-import { parseGameResult } from '../_shared/game-result.js';
+import { parseGameResult, csvKey } from '../_shared/game-result.js';
 
 const MAX_BYTES = 200_000;
 const cors = {
@@ -78,9 +78,14 @@ Deno.serve(async (req) => {
     await db.from('upload_devices').update({ last_seen_at: new Date().toISOString(), last_file: fileName }).eq('id', device.id);
     if (!parsed.ok) return json({ ok: false, error: parsed.error }, 422);
 
-    // 같은 판(gameId)은 한 번만
+    // 같은 판은 한 번만: gameId 로, gameId 가 없는 파일이면 CSV 내용으로
     if (parsed.gameId) {
-      const { data: dup } = await db.from('rounds').select('id, round_no, status').eq('game_id', parsed.gameId).maybeSingle();
+      const { data: dup } = await db.from('rounds').select('id, round_no, status').eq('game_id', parsed.gameId).limit(1);
+      if (dup?.length) return json({ ok: true, duplicate: true, round_id: dup[0].id, message: '이미 올라간 판이라 건너뛰었어요' });
+    } else {
+      const { data: same } = await db.from('rounds').select('id, raw_csv').is('game_id', null).order('uploaded_at', { ascending: false }).limit(300);
+      const key = csvKey(text);
+      const dup = (same ?? []).find((r) => csvKey(r.raw_csv) === key);
       if (dup) return json({ ok: true, duplicate: true, round_id: dup.id, message: '이미 올라간 판이라 건너뛰었어요' });
     }
 

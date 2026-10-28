@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { parseGameResult, teamScore, splitCsvLine, normName } from '../supabase/functions/_shared/game-result.js';
+import { parseGameResult, teamScore, splitCsvLine, normName, csvKey, sameGame } from '../supabase/functions/_shared/game-result.js';
 
 const fx = (n) => readFileSync(new URL(`./fixtures/${n}`, import.meta.url), 'utf8');
 const RULES = { placement: [10, 7, 5, 4, 3, 2, 1, 0], ks_early: 0.5, ks_late: 1, penalty: 1 };
@@ -80,4 +80,15 @@ test('CRLF · 따옴표 · 칸 순서가 바뀌어도 읽어요', () => {
 test('실험체 이름 비교', () => {
   assert.equal(normName('LiDailin'), normName('Li Dailin'));
   assert.equal(normName('István'), 'istvan');
+});
+
+test('같은 게임 판별: gameId · CSV 내용(BOM · 줄바꿈 무시)', () => {
+  const csv = '﻿rank, nickname\r\n1, A\r\n';
+  assert.equal(csvKey(csv), 'rank, nickname\n1, A\n');
+  assert.equal(sameGame({ game_id: 777, raw_csv: 'a' }, { game_id: '777', raw_csv: 'b' }), true);
+  assert.equal(sameGame({ game_id: 777, raw_csv: csv }, { game_id: 778, raw_csv: csv }), true);       // 내용이 같으면 같은 게임
+  assert.equal(sameGame({ game_id: null, raw_csv: csv }, { game_id: null, raw_csv: 'rank, nickname\n1, A\n' }), true);
+  assert.equal(sameGame({ game_id: null, raw_csv: csv }, { game_id: null, raw_csv: 'rank, nickname\n1, B\n' }), false);
+  assert.equal(sameGame({ game_id: 1, raw_csv: '' }, { game_id: 2, raw_csv: '' }), false);           // 둘 다 비어 있으면 같다고 보지 않아요
+  assert.equal(sameGame(null, { game_id: 1 }), false);
 });

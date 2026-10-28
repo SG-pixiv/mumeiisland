@@ -3,7 +3,7 @@ import { html, mount, on, toast, errorText } from '../../lib/dom.js';
 import { select, insert, update, remove, rpc } from '../../lib/db.js';
 import { loadEvents, loadPlayers } from '../../lib/api.js';
 import { dateTimeShort, score, tierDot } from '../../lib/fmt.js';
-import { parseGameResult, teamScore, normName } from '../../../supabase/functions/_shared/game-result.js';
+import { parseGameResult, teamScore, normName, sameGame } from '../../../supabase/functions/_shared/game-result.js';
 
 const STATUS = { pending: ['검토 대기', 'soft'], held: ['보류', 'warn'], confirmed: ['확정', 'ok'] };
 const SOURCE = { device: '업로드 장치', manual: '직접 올림' };
@@ -31,7 +31,19 @@ startAdmin('review', async (main) => {
   const eventTitle = (id) => events.find((e) => e.id === id)?.title ?? '내전 미지정';
   const playedMs = (r) => Date.parse(r.played_at || r.uploaded_at);
   // 이 판 앞뒤 12시간 안에 올라온, 아직 내전이 없는 판 (같은 날 내전으로 묶어요)
-  const unassignedNear = (round) => rounds.filter((r) => r.id !== round.id && !r.event_id && r.status !== 'confirmed' && Math.abs(playedMs(r) - playedMs(round)) <= 12 * 3600e3);
+  // 같은 게임이 겹친 판은 한 번만 넣어요
+  const unassignedNear = (round) => {
+    const kept = [];
+    for (const r of rounds) {
+      if (r.id === round.id || r.event_id || r.status === 'confirmed' || Math.abs(playedMs(r) - playedMs(round)) > 12 * 3600e3) continue;
+      if (sameGame(r, round) || kept.some((k) => sameGame(k, r))) continue;
+      kept.push(r);
+    }
+    return kept;
+  };
+  // 이 판과 같은 게임인 다른 판 (확정된 것을 먼저)
+  const twinOf = (round) => rounds.filter((o) => o.id !== round.id && sameGame(o, round)).sort((a, b) => (b.status === 'confirmed') - (a.status === 'confirmed'))[0] ?? null;
+  const roundLabel = (r) => `${eventTitle(r.event_id)}${r.round_no > 0 ? ` ${r.round_no}라운드` : ''}`;
   const defaultTitle = (round) => { const t = new Date(playedMs(round)); return `${t.getMonth() + 1}월 ${t.getDate()}일 내전`; };
 
   const reload = async () => {
@@ -106,6 +118,12 @@ startAdmin('review', async (main) => {
   const warnings = (d) => {
     const w = [];
     if (!d.parsed.ok) return [['pink', d.parsed.error]];
+    const twin = twinOf(d.round);
+    if (twin && d.round.status !== 'confirmed') {
+      w.push(['pink', twin.status === 'confirmed'
+        ? `같은 게임이 이미 "${roundLabel(twin)}"(으)로 확정돼 있어요. 이 판은 확정할 수 없으니 지워 주세요.`
+        : `같은 게임이 검토 목록에 하나 더 있어요 ("${roundLabel(twin)}"). 둘 중 하나만 확정하고 나머지는 지워 주세요.`]);
+    }
     if (!d.eventId && d.round.status !== 'confirmed') w.push(['pink', '어느 내전의 판인지 정해야 확정할 수 있어요. 아래에서 내전을 고르거나, 일정에 없던 내전이면 바로 만들어 주세요.']);
     if (!d.parsed.scoringOn) w.push(['warn', '대회 점수 산정이 꺼진 판이에요. 0.5점 킬은 CSV 의 "down can not eliminate" 값으로 채웠으니 한 번 확인해 주세요.']);
     if (d.parsed.hasBots) w.push(['', '봇이 들어 있는 판이에요. 봇만 있는 팀은 기본으로 저장하지 않아요.']);
@@ -126,7 +144,7 @@ startAdmin('review', async (main) => {
     return html`<button type="button" data-pick="${r.id}" aria-pressed="${state.sel === r.id}" class="card" style="cursor: pointer; text-align: left; padding: 12px 14px; border-radius: 22px; gap: 4px; align-content: start; ${state.sel === r.id ? 'background: var(--soft); border-color: var(--pink); box-shadow: 0 4px 0 var(--pink)' : ''}">
       <span style="font-family: var(--head); font-size: 16px">${eventTitle(r.event_id)}${r.round_no > 0 ? ` · ${r.round_no}라운드` : ''}</span>
       <small class="muted" style="font-weight: 600; word-break: break-all">${r.file_name || '파일 이름 없음'} · ${dateTimeShort(r.uploaded_at)}</small>
-      <span class="flex" style="gap: 6px"><span class="chip ${cls}" style="font-size: 12px; padding: 0 10px">${label}</span><span class="chip plain" style="font-size: 12px; padding: 0 6px">${SOURCE[r.source] || r.source}</span></span>
+      <span class="flex" style="gap: 6px"><span class="chip ${cls}" style="font-size: 12px; padding: 0 10px">${label}</span><span class="chip plain" style="font-size: 12px; padding: 0 6px">${SOURCE[r.source] || r.source}</span>${r.status !== 'confirmed' && twinOf(r) ? html`<span class="chip warn" style="font-size: 12px; padding: 0 8px">같은 게임 있음</span>` : ''}</span>
     </button>`;
   };
 
@@ -315,7 +333,8 @@ startAdmin('review', async (main) => {
         const text = await f.text();
         const parsed = parseGameResult(text);
         if (!parsed.ok) { skipped.push(`${f.name}: ${parsed.error}`); continue; }
-        if (parsed.gameId && rounds.some((r) => Number(r.game_id) === parsed.gameId)) { skipped.push(`${f.name}: 이미 올라간 판이에요`); continue; }
+        const twin = rounds.find((r) => sameGame(r, { game_id: parsed.gameId, raw_csv: text }));
+        if (twin) { skipped.push(`${f.name}: 이미 올라간 판이에요 (${roundLabel(twin)})`); continue; }
         const [row] = await insert('rounds', {
           event_id: eventId, round_no: eventId ? roundNo++ : 0, status: 'pending', source: 'manual',
           file_name: f.name, raw_csv: text, game_id: parsed.gameId, played_at: new Date(f.lastModified || Date.now()).toISOString()
@@ -343,6 +362,8 @@ startAdmin('review', async (main) => {
       input?.focus({ preventScroll: true });
       return toast('어느 내전의 판인지 먼저 정해 주세요. 내전을 고르거나, 위의 파란 칸에서 바로 만들 수 있어요.', true);
     }
+    const twin = twinOf(d.round);
+    if (twin?.status === 'confirmed') return toast(`같은 게임이 이미 "${roundLabel(twin)}"(으)로 확정돼 있어요. 이 판은 지워 주세요.`, true);
     if (!inc.length) return toast('저장할 팀이 없어요.', true);
     if (new Set(inc.map((t) => t.teamNo)).size !== inc.length) return toast('같은 팀 번호가 있어요. 팀 번호를 확인해 주세요.', true);
     if (rounds.some((r) => r.id !== d.round.id && r.event_id === d.eventId && r.round_no === d.roundNo)) return toast(`이 내전에 이미 ${d.roundNo}라운드가 있어요. 라운드 번호를 바꿔 주세요.`, true);

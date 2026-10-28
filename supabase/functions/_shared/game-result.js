@@ -46,6 +46,26 @@ export function normName(s) {
   return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 }
 
+/** 같은 CSV 인지 비교용: BOM · \r 을 지워요 (DB 의 public._csv_fp 와 같은 기준) */
+export function csvKey(text) {
+  return String(text ?? '').replace(/﻿/g, '').replace(/\r/g, '');
+}
+
+const keyCache = new WeakMap();   // 라운드 객체 → csvKey (화면을 다시 그릴 때마다 계산하지 않게)
+const roundKey = (r) => {
+  let k = keyCache.get(r);
+  if (k === undefined) { k = csvKey(r.raw_csv); keyCache.set(r, k); }
+  return k;
+};
+
+/** 두 라운드({ game_id, raw_csv })가 같은 게임인지: gameId 가 같거나, CSV 내용이 같으면 */
+export function sameGame(a, b) {
+  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (a.game_id != null && b.game_id != null && Number(a.game_id) === Number(b.game_id)) return true;
+  const ka = roundKey(a);
+  return !!ka && ka === roundKey(b);
+}
+
 /** 따옴표를 고려해서 한 줄을 칸으로 나눠요 */
 export function splitCsvLine(line) {
   const out = [];
