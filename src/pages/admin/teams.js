@@ -5,7 +5,7 @@ import { loadEvents, loadPlayers, nextEvent } from '../../lib/api.js';
 import { num, dateKo, timeKo, FORMAT_LABEL, tierDot, lockIcon } from '../../lib/fmt.js';
 import {
   TIERS, MAX_TEAMS, scoreTable, teamPlan, emptyTeams, teamStats, balance, poolFrom, signature,
-  draftSequence, draftTeams, recommendPicks, autoFillDraft, captainOrderFromPrev
+  draftSequence, draftTeams, captainOrderFromPrev
 } from '../../lib/balance.js';
 
 const DRAFT_STATUS = { before: '시작 전', live: '진행 중', done: '완료' };
@@ -216,8 +216,6 @@ startAdmin('teams', async (main) => {
     }
 
     const value = valueFn();
-    const rec = d.cur ? recommendPicks({ fixed: d.fixed, pool: d.pool, value, team: d.cur.team, tier: d.cur.tier }) : [];
-    const recBy = new Map(rec.map((r, i) => [r.id, { ...r, rank: i }]));
     const last = d.picks[d.picks.length - 1];
     return html`<section class="card ink stack" style="gap: 14px">
       <div class="card-head"><h2>드래프트</h2><span class="chip ${d.status === 'live' ? 'soft' : 'ok'}">${DRAFT_STATUS[d.status]} · ${d.picks.length} / ${d.seq.length}</span></div>
@@ -228,24 +226,17 @@ startAdmin('teams', async (main) => {
         </div>
         <div class="stack" style="gap: 8px"><b style="font-family: var(--head); font-size: 17px; color: var(--t${d.cur.tier})">${d.cur.tier}티어 남은 선수 ${d.pool[d.cur.tier].length}명</b>
           <div class="grid" style="--min: 220px; gap: 8px">${d.pool[d.cur.tier].map((id) => {
-            const r = recBy.get(id);
             const sc = scores().get(id);
-            return html`<button type="button" class="member" data-pick="${id}" ${state.busy ? 'disabled' : ''} style="cursor: pointer; border: 2px solid ${r?.rank === 0 ? 'var(--sky-ink)' : 'transparent'}; text-align: left; font: inherit">
-              ${tierDot(d.cur.tier)}<span class="info"><b>${nameOf(id)}</b><small>${sc?.estimated ? '≈ ' : ''}${num(sc?.value)}점 · 예상 차이 ${num(r?.spread)}</small></span>
-              ${r?.rank === 0 ? html`<span class="chip sky" style="font-size: 11px; padding: 0 8px">밸런스 추천</span>` : ''}</button>`;
+            return html`<button type="button" class="member" data-pick="${id}" ${state.busy ? 'disabled' : ''} style="cursor: pointer; border: 2px solid transparent; text-align: left; font: inherit">
+              ${tierDot(d.cur.tier)}<span class="info"><b>${nameOf(id)}</b><small>${sc?.estimated ? '≈ ' : ''}${num(sc?.value)}점${sc?.estimated ? ' (기록 없음)' : ''}</small></span></button>`;
           })}</div>
-          <small class="muted" style="font-weight: 600">"예상 차이"는 이 선수를 뽑고 남은 지명을 가장 고르게 채웠을 때 팀 점수(세 명 합)의 최대 차이예요. 팀장이 고르는 데 참고만 해요.</small>
         </div>` : html`<p class="notice" style="margin: 0">모든 지명이 끝났어요! 공개 페이지에 팀이 떠 있어요.</p>`}
       <div class="flex" style="gap: 8px">
-        ${d.cur ? html`<button type="button" class="btn sky" data-pick-rec ${rec.length && !state.busy ? '' : 'disabled'}>추천 선수로 뽑기</button>
-          <button type="button" class="btn" data-autofill ${state.busy ? 'disabled' : ''}>남은 지명 자동 채우기</button>` : ''}
         <button type="button" class="btn ghost" data-undo ${last && !state.busy ? '' : 'disabled'}>되돌리기${last ? ` (${nameOf(last.player_id)})` : ''}</button>
         <span class="spacer"></span>
         <button type="button" class="btn ghost danger" data-reset-draft ${state.busy ? 'disabled' : ''}>드래프트 초기화</button>
       </div>
-      ${d.cur
-        ? html`<div class="flex" style="gap: 8px"><span class="chip sky">추천대로 채우면 예상 최대 차이 <b class="num">${num(rec[0]?.spread)}</b>점</span><span class="chip plain">팀 점수 = 세 명의 솔로 랭크 점수 합</span></div>`
-        : statsLine(d.fixed)}
+      ${d.cur ? '' : statsLine(d.fixed)}
       <div class="grid" style="--min: 240px">${d.captains.map((c, i) => {
         const t = d.fixed[i];
         const isCur = d.cur && d.cur.team === i;
@@ -414,32 +405,16 @@ startAdmin('teams', async (main) => {
       if (state.publicOnStart && !ev().teams_public) { await update('events', { teams_public: true }, { id: state.eventId }); ev().teams_public = true; }
     }, `드래프트를 시작했어요! 첫 지명은 ${nameOf(order[0])} 팀장이에요.`);
   });
-  const pickPlayer = async (id, auto) => {
+  const pickPlayer = async (id) => {
     const d = draftInfo();
     if (!d.cur) return;
     const step = d.picks.length;
     await run(async () => {
-      await insert('event_teams', { event_id: state.eventId, player_id: id, team_no: d.cur.team + 1, slot_tier: d.cur.tier, locked: true, pick_no: step + 1, auto_pick: auto });
+      await insert('event_teams', { event_id: state.eventId, player_id: id, team_no: d.cur.team + 1, slot_tier: d.cur.tier, locked: true, pick_no: step + 1, auto_pick: false });
       await update('drafts', { status: step + 1 >= d.seq.length ? 'done' : 'live', updated_at: new Date().toISOString() }, { event_id: state.eventId });
     }, `${nameOf(d.cur.captain)} 팀장 → ${nameOf(id)}${step + 1 >= d.seq.length ? ' · 드래프트 끝!' : ''}`);
   };
-  on(main, 'click', '[data-pick]', (_e, b) => pickPlayer(b.dataset.pick, false));
-  on(main, 'click', '[data-pick-rec]', () => {
-    const d = draftInfo();
-    if (!d.cur) return;
-    const [best] = recommendPicks({ fixed: d.fixed, pool: d.pool, value: valueFn(), team: d.cur.team, tier: d.cur.tier });
-    if (best) pickPlayer(best.id, true);
-  });
-  on(main, 'click', '[data-autofill]', async () => {
-    const d = draftInfo();
-    const fill = autoFillDraft({ captains: d.captains, picks: d.picks, pool: d.pool, value: valueFn() });
-    if (!fill.length) return;
-    if (!confirm(`남은 지명 ${fill.length}번을 밸런스에 맞춰 자동으로 채울까요? 되돌리기로 하나씩 취소할 수 있어요.`)) return;
-    await run(async () => {
-      await insert('event_teams', fill.map((f, k) => ({ event_id: state.eventId, player_id: f.id, team_no: f.team + 1, slot_tier: f.tier, locked: true, pick_no: d.picks.length + k + 1, auto_pick: true })));
-      await update('drafts', { status: 'done', updated_at: new Date().toISOString() }, { event_id: state.eventId });
-    }, '남은 지명을 채웠어요. 드래프트 끝!');
-  });
+  on(main, 'click', '[data-pick]', (_e, b) => pickPlayer(b.dataset.pick));
   on(main, 'click', '[data-undo]', async () => {
     const d = draftInfo();
     const last = d.picks[d.picks.length - 1];

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   scoreTable, teamPlan, emptyTeams, teamStats, balance, poolFrom, signature,
-  draftSequence, draftTeams, recommendPicks, autoFillDraft, captainOrderFromPrev
+  draftSequence, draftTeams, captainOrderFromPrev
 } from '../src/lib/balance.js';
 
 // 늘 같은 결과가 나오는 난수
@@ -86,29 +86,6 @@ test('드래프트 순서: 2티어는 팀장 순서대로, 3티어는 거꾸로'
   assert.deepEqual(seq.map((s) => `${s.captain}:${s.tier}`), ['k1:2', 'k2:2', 'k3:2', 'k3:3', 'k2:3', 'k1:3']);
   const teams = draftTeams(['k1', 'k2', 'k3'], [{ player_id: 'b1', team_no: 1, slot_tier: 2 }, { player_id: 'c1', team_no: 3, slot_tier: 3 }]);
   assert.deepEqual(teams, [{ 1: 'k1', 2: 'b1', 3: null }, { 1: 'k2', 2: null, 3: null }, { 1: 'k3', 2: null, 3: 'c1' }]);
-});
-
-test('드래프트 추천 · 남은 지명 자동 채우기', () => {
-  const value = valueOf(players12);
-  const captains = ['a1', 'a2', 'a3', 'a4'];
-  const picks = [{ player_id: 'b4', team_no: 1, slot_tier: 2 }];   // 1번 팀장이 2티어 b4 를 이미 뽑았어요
-  const fixed = draftTeams(captains, picks);
-  const pool = poolFrom(players12, fixed);
-  // 다음은 2번 팀장의 2티어 지명: 추천 1순위를 넣었을 때가 다른 후보보다 나빠지면 안 돼요
-  const rec = recommendPicks({ fixed, pool, value, team: 1, tier: 2, rng: seeded(5) });
-  assert.equal(rec.length, 3);
-  for (const r of rec) {
-    const f = fixed.map((t) => ({ ...t })); f[1][2] = r.id;
-    const best = bruteBest(f, { 1: [], 2: pool[2].filter((x) => x !== r.id), 3: pool[3] }, value);
-    assert.ok(Math.abs(r.variance - best) < 1e-6);
-  }
-  assert.ok(rec[0].variance <= rec[rec.length - 1].variance);
-
-  const fill = autoFillDraft({ captains, picks, pool, value, rng: seeded(9) });
-  assert.equal(fill.length, 7);                        // 8번 지명 중 1번은 이미 했어요
-  assert.deepEqual(fill.map((f) => f.step), [1, 2, 3, 4, 5, 6, 7]);
-  assert.equal(new Set(fill.map((f) => f.id)).size, 7);
-  assert.ok(fill.every((f) => (f.tier === 2 ? pool[2] : pool[3]).includes(f.id)));
 });
 
 test('팀장 순서: 지난 내전 꼴찌 팀 팀장부터, 기록 없으면 뒤로', () => {

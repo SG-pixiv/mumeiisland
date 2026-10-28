@@ -1,4 +1,4 @@
-// 팀 편성 · 드래프트 밸런스 계산 (관리자 화면 · 테스트가 같이 써요)
+// 팀 편성 밸런스 계산 · 드래프트 순서 (관리자 화면 · 테스트가 같이 써요)
 //
 // 한 팀 = 1 · 2 · 3티어 한 명씩. 팀 점수 = 세 명의 솔로 랭크 점수 합.
 // 팀 점수가 고르게(분산이 가장 작게) 되도록 빈자리를 채워요. 이미 정해진 자리(잠금 · 지명)는 건드리지 않아요.
@@ -135,30 +135,6 @@ export function draftTeams(captains, picks) {
   const teams = captains.map((c) => ({ 1: c, 2: null, 3: null }));
   picks.forEach((p) => { const t = teams[p.team_no - 1]; if (t && (p.slot_tier === 2 || p.slot_tier === 3)) t[p.slot_tier] = p.player_id; });
   return teams;
-}
-
-/**
- * 이번 지명 추천: 후보를 넣어 보고 남은 자리를 가장 고르게 채웠을 때 팀 점수 차이가 작은 순서
- * → [{ id, spread }] (첫 번째가 추천)
- */
-export function recommendPicks({ fixed, pool, value, team, tier, restarts = 24, rng = Math.random }) {
-  return (pool[tier] || []).map((id) => {
-    const f = cloneTeams(fixed);
-    f[team][tier] = id;
-    const rest = { ...pool, [tier]: pool[tier].filter((x) => x !== id) };
-    const { stats } = balance({ fixed: f, pool: rest, value, restarts, rng });
-    return { id, spread: stats.spread, variance: stats.variance };
-  }).sort((a, b) => a.variance - b.variance || a.spread - b.spread);
-}
-
-/** 남은 지명을 밸런스로 채우기 → 지명 순서대로 [{ step, team, tier, id }] */
-export function autoFillDraft({ captains, picks, pool, value, restarts = 80, rng = Math.random }) {
-  const fixed = draftTeams(captains, picks);
-  const { teams } = balance({ fixed, pool: { 1: [], 2: pool[2] || [], 3: pool[3] || [] }, value, restarts, rng });
-  const done = new Set(picks.map((p) => `${p.team_no}-${p.slot_tier}`));
-  return draftSequence(captains)
-    .map((s, step) => ({ step, team: s.team, tier: s.tier, id: teams[s.team][s.tier] }))
-    .filter((s) => !done.has(`${s.team + 1}-${s.tier}`) && s.id);
 }
 
 /**
