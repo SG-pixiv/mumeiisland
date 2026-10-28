@@ -72,7 +72,7 @@ startPublic('draft', async (main) => {
       const done = j < picks.length, now = status === 'live' && j === picks.length;
       return html`<span class="chip" style="font-size: 12px; padding: 1px 10px; background: ${now ? 'var(--pink)' : done ? 'var(--soft)' : 'var(--card)'}; border-color: ${now ? 'var(--ink)' : 'var(--line)'}; color: ${done ? 'var(--muted)' : 'var(--ink)'}"><b class="num">${j + 1}</b> ${nameOf(s.c)}${done ? ' → ' + nameOf(picks[j].player_id) : ''}</span>`;
     };
-    const pool = (tier) => b.participants.filter((p) => p.tier === tier && !taken.has(p.id));
+    const pool = (tier) => b.participants.filter((p) => p.slotTier === tier && !taken.has(p.id));
 
     mount(main, html`${head}
       <section class="hero ${status === 'live' ? '' : 'sky'}" aria-live="polite">

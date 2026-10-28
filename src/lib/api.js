@@ -168,5 +168,7 @@ export async function loadTeamsBoard(eventId) {
     select('event_participants', { eq: { event_id: ev.id } }),
     loadPlayers({ includeInactive: true })
   ]);
-  return { event: ev, teams, draft: drafts[0] || null, participants: parts.map((p) => byId.get(p.player_id)).filter(Boolean), byId };
+  // slotTier: 이번 내전에서 들어가는 티어 자리 (일정마다 바꿀 수 있어요. 비어 있으면 선수 티어)
+  const participants = parts.map((p) => { const pl = byId.get(p.player_id); return pl ? { ...pl, slotTier: p.slot_tier || pl.tier } : null; }).filter(Boolean);
+  return { event: ev, teams, draft: drafts[0] || null, participants, byId };
 }
