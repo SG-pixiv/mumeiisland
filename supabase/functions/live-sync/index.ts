@@ -180,7 +180,7 @@ Deno.serve(async (req) => {
             if (r.error.code === 404) { rssOk.add(p.id); return; }   // 올린 영상이 없는 채널 = 방송 아님
             throw new Error(r.error.message || 'API 오류');
           }
-          playlistVideoIds(r, 5).forEach((v) => vids.push(v));
+          playlistVideoIds(r, 5).forEach((v: string) => vids.push(v));
           rssOk.add(p.id);
         } catch (e) { note(p, `유튜브 최근 영상을 읽지 못했어요: ${(e as Error).message}`); }
       });
