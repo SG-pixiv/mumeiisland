@@ -15,7 +15,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import {
   CHZZK_API, YT_API, BROWSER_UA, parseChzzkId, parseYoutubeRef, chzzkLive, chzzkChannel, chzzkOpenChannels,
-  youtubeChannelInfo, rssVideoIds, youtubeLiveByChannel, decideLive
+  youtubeChannelInfo, rssVideoIds, uploadsPlaylistId, playlistVideoIds, youtubeLiveByChannel, decideLive
 } from '../_shared/live.js';
 
 const PROFILE_TTL_MS = 12 * 3600_000;   // 프로필 사진은 12시간마다
@@ -163,14 +163,26 @@ Deno.serve(async (req) => {
           group.forEach((p) => { const info: any = byId.get(ytChannel.get(p.id)); if (info?.image) ytImage.set(p.id, info.image); });
         } catch (e) { errors.push(`유튜브 프로필: ${(e as Error).message}`); }
       }
-      // 3) 라이브: 채널 RSS 의 최근 영상 → videos.list
+      // 3) 라이브: 채널 RSS 의 최근 영상 (무료) → 안 되면 API 업로드 목록 (1 쿼터) → videos.list
+      //    RSS 는 공개 영상이 없는 채널이나 가끔 멀쩡한 채널에도 404 를 줘요
       const vids: string[] = [];
       const rssOk = new Set<string>();
       await eachLimit((ytPlayers as any[]).filter((p) => ytChannel.has(p.id)), 4, async (p) => {
+        const ch = ytChannel.get(p.id) ?? '';
         try {
-          rssVideoIds(await getText(`https://www.youtube.com/feeds/videos.xml?channel_id=${ytChannel.get(p.id)}`), 5).forEach((v) => vids.push(v));
+          rssVideoIds(await getText(`https://www.youtube.com/feeds/videos.xml?channel_id=${ch}`), 5).forEach((v) => vids.push(v));
           rssOk.add(p.id);
-        } catch (e) { note(p, `유튜브 최근 영상: ${(e as Error).message}`); }
+          return;
+        } catch { /* 아래 API 로 다시 */ }
+        try {
+          const r = await yt(`playlistItems?part=contentDetails&maxResults=5&playlistId=${uploadsPlaylistId(ch)}`);
+          if (r?.error) {
+            if (r.error.code === 404) { rssOk.add(p.id); return; }   // 올린 영상이 없는 채널 = 방송 아님
+            throw new Error(r.error.message || 'API 오류');
+          }
+          playlistVideoIds(r, 5).forEach((v) => vids.push(v));
+          rssOk.add(p.id);
+        } catch (e) { note(p, `유튜브 최근 영상을 읽지 못했어요: ${(e as Error).message}`); }
       });
       let videosOk = true;
       const liveByChannel = new Map<string, any>();

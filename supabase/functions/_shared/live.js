@@ -105,6 +105,17 @@ export function rssVideoIds(xml, max = 5) {
   return ids;
 }
 
+/** 채널 ID(UC…) → 업로드 재생목록 ID(UU…). RSS 가 안 될 때 API 로 최근 영상을 받을 때 써요 */
+export function uploadsPlaylistId(channelId) {
+  const id = str(channelId);
+  return id.startsWith('UC') ? 'UU' + id.slice(2) : '';
+}
+
+/** playlistItems.list 응답 → 영상 ID */
+export function playlistVideoIds(json, max = 5) {
+  return (json?.items ?? []).map((it) => it?.contentDetails?.videoId || it?.snippet?.resourceId?.videoId).filter(Boolean).slice(0, max);
+}
+
 /** videos.list 응답 → Map(채널ID → { videoId, title, viewers, startedAt }) — 지금 방송 중인 것만 */
 export function youtubeLiveByChannel(json) {
   const out = new Map();

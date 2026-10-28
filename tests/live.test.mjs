@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseChzzkId, parseYoutubeRef, kstToIso, chzzkLive, chzzkChannel, chzzkOpenChannels,
-  youtubeChannelInfo, rssVideoIds, youtubeLiveByChannel, decideLive
+  youtubeChannelInfo, rssVideoIds, uploadsPlaylistId, playlistVideoIds, youtubeLiveByChannel, decideLive
 } from '../supabase/functions/_shared/live.js';
 
 const CH = 'a1b2c3d4e5f60718293a4b5c6d7e8f90';
@@ -70,4 +70,11 @@ test('어느 방송을 보여 줄지', () => {
   assert.equal(y.live_platform, 'youtube');
   assert.equal(y.live_url, 'https://www.youtube.com/watch?v=v2');
   assert.deepEqual(decideLive({ chzzkId: '', chzzk: null, youtube: null }), { is_live: false, live_platform: null, live_title: null, live_viewers: null, live_url: null, live_started_at: null });
+});
+
+test('RSS 가 안 될 때 쓰는 업로드 목록', () => {
+  assert.equal(uploadsPlaylistId(UC), 'UU' + 'x'.repeat(22));
+  assert.equal(uploadsPlaylistId('nope'), '');
+  assert.deepEqual(playlistVideoIds({ items: [{ contentDetails: { videoId: 'a1' } }, { snippet: { resourceId: { videoId: 'b2' } } }, {}] }), ['a1', 'b2']);
+  assert.deepEqual(playlistVideoIds({}), []);
 });
