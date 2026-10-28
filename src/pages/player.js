@@ -1,7 +1,7 @@
 import { startPublic } from '../components/shell.js';
 import { html, mount, on, qs, safeUrl } from '../lib/dom.js';
 import { loadPlayerDetail } from '../lib/api.js';
-import { avatar, liveBadge, pct, num, score, chzzkUrl, medalClass, shortDate } from '../lib/fmt.js';
+import { avatar, liveBadge, pct, num, score, chzzkUrl, medalClass, shortDate, liveHref, PLATFORM_LABEL } from '../lib/fmt.js';
 
 startPublic('players', async (main) => {
   const id = qs('id');
@@ -25,8 +25,10 @@ startPublic('players', async (main) => {
         ${p.rank?.top?.length ? html`<span class="chip sky">모스트 ${p.rank.top.join(' · ')}</span>` : ''}
       </div>
       ${p.note ? html`<p style="margin: 0; font-weight: 600" class="muted">장점: ${p.note}</p>` : ''}
+      ${p.isLive && p.liveTitle ? html`<p style="margin: 0; font-weight: 700">지금 ${PLATFORM_LABEL[p.livePlatform] || ''}에서 방송 중 · ${p.liveTitle}${p.liveViewers ? html` <span class="muted">· 시청자 <b class="num">${num(p.liveViewers)}</b></span>` : ''}</p>` : ''}
     </div>
     <div class="flex" style="flex: 1 1 200px; justify-content: flex-end; gap: 10px">
+      ${p.isLive && liveHref(p) ? html`<a class="btn pink big" href="${liveHref(p)}" target="_blank" rel="noopener">방송 보러 가기</a>` : ''}
       ${p.chzzkId ? html`<a class="btn sky big" href="${chzzkUrl(p.chzzkId)}" target="_blank" rel="noopener">치지직 방송</a>` : ''}
       ${safeUrl(p.youtubeUrl) ? html`<a class="btn big" href="${safeUrl(p.youtubeUrl)}" target="_blank" rel="noopener">유튜브</a>` : ''}
     </div>

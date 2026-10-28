@@ -58,6 +58,12 @@ export function parseChzzkId(input) {
   return m ? m[1].toLowerCase() : '';
 }
 
+/** 방송 보러 가기 주소: 서버가 찾은 라이브 주소 → 치지직 라이브 → 유튜브 채널 */
+export function liveHref(p) {
+  return safeUrl(p.liveUrl) || (p.livePlatform !== 'youtube' && p.chzzkId ? `https://chzzk.naver.com/live/${encodeURIComponent(p.chzzkId)}` : safeUrl(p.youtubeUrl)) || '';
+}
+export const PLATFORM_LABEL = { chzzk: '치지직', youtube: '유튜브' };
+
 export function photoOf(p) {
   const pick = { chzzk: p.chzzkImage, youtube: p.youtubeImage, upload: p.customPhoto }[p.photoSource];
   return safeUrl(pick || p.chzzkImage || p.youtubeImage || p.customPhoto || '');

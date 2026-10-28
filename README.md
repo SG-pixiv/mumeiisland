@@ -126,6 +126,35 @@ select cron.schedule('er-sync-daily', '0 20 * * *',  -- 매일 05:00 (한국 시
 - 업로드 프로그램이 없어도 결과 검토 화면에서 CSV 를 직접 올릴 수 있어요.
 - 사용자 설정 대전은 이리 API 에 기록이 남지 않아서 딜량은 쓰지 않아요. 내전 기록은 점수 기준이에요.
 
+### 11. 치지직 · 유튜브 연동 (3단계)
+선수 카드의 프로필 사진과 LIVE ON 을 자동으로 채워요. 선수 관리에서 치지직 방송국 주소나 유튜브 채널 주소(`https://www.youtube.com/@핸들`)를 넣어 두면 돼요.
+
+1. **DB 추가**: SQL Editor 에 `supabase/migrations/20261028020000_live.sql` 붙여 넣고 Run
+2. **유튜브 API 키** (유튜브를 쓸 때만)
+   1. https://console.cloud.google.com → 프로젝트 만들기 (이름 예: mumeiisland)
+   2. **API 및 서비스 → 라이브러리** → `YouTube Data API v3` → **사용**
+   3. **사용자 인증 정보 → 사용자 인증 정보 만들기 → API 키** → 만든 키의 **API 제한사항**을 `YouTube Data API v3` 로 제한
+   4. PowerShell: `npx supabase secrets set "YOUTUBE_API_KEY=발급받은_키" --project-ref <Supabase 프로젝트 ID>`
+3. **서버 함수 올리기**
+   ```powershell
+   npx supabase functions deploy live-sync --project-ref <Supabase 프로젝트 ID> --use-api
+   ```
+4. **2분마다 자동 확인**: SQL Editor 에서 (CRON_SECRET 은 9번에서 정한 값)
+   ```sql
+   select cron.schedule('live-sync', '*/2 * * * *',
+     $$ select net.http_post(
+          url := 'https://<프로젝트 ID>.supabase.co/functions/v1/live-sync',
+          headers := jsonb_build_object('Content-Type', 'application/json', 'x-cron-secret', '위에서_정한_CRON_SECRET'),
+          body := '{}'::jsonb,
+          timeout_milliseconds := 60000) $$);
+   ```
+5. 관리자 → 선수 관리 → **방송 · 프로필 새로 고침** 으로 바로 확인해 보세요.
+
+알아 둘 것
+- 치지직은 로그인 없이 쓰는 공개 주소(api.chzzk.naver.com)로 방송 상태를 확인해요. 공식 API 가 아니라서 치지직이 막으면 멈출 수 있어요. 그때는 사이트가 20분 뒤 LIVE ON 을 알아서 숨기고, 대시보드에 "자동 확인이 멈췄어요"가 떠요. (치지직 개발자 센터 키를 `CHZZK_CLIENT_ID` · `CHZZK_CLIENT_SECRET` 로 넣어 두면 프로필 사진은 공식 API 로도 받아요)
+- 유튜브는 채널의 최근 영상 목록에서 라이브를 찾아서, 방송을 켜고 1~2분 뒤에 LIVE ON 이 떠요. 2분마다 확인하면 하루 쿼터 10,000 중 약 720 만 써요.
+- 둘 다 방송 중이면 치지직 방송을 먼저 보여 줘요.
+
 ## 내 컴퓨터에서 고치면서 보기
 ```powershell
 npm install
@@ -142,5 +171,4 @@ npm run dev                     # http://localhost:5173
 
 ## 다음 단계
 - 팀 편성 · 드래프트 관리자 화면 (자동 편성 · 자물쇠 · 밸런스 추천 · 자동 채우기)
-- 치지직 · 유튜브 (프로필 사진 · LIVE ON)
 - 디스코드 봇 (오라클 서버 · MVP 투표 · 참가 신청 · `/관리자키`)

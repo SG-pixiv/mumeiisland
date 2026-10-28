@@ -51,7 +51,9 @@ function build() {
     id: T(n), display_name: name, er_nickname: nick, er_uid: 'demo-' + n, balance_tier: tier, role, strength_note: n === 1 ? '운영 콜, 교전 판단' : null,
     chzzk_channel_id: chzzk || null, youtube_url: yt || null, photo_source: chzzk ? 'chzzk' : yt ? 'youtube' : 'upload',
     chzzk_image_url: null, youtube_image_url: null, custom_photo_url: null,
-    is_live: live, live_title: live ? '내전 대비 루트 연습' : null, live_viewers: live ? 100 + n * 37 : null, live_checked_at: iso('2026-10-27T10:00:00+09:00'),
+    is_live: live, live_title: live ? '내전 대비 루트 연습' : null, live_viewers: live ? 100 + n * 37 : null, live_checked_at: new Date().toISOString(),
+    live_platform: live ? (chzzk ? 'chzzk' : 'youtube') : null, live_url: live ? (chzzk ? `https://chzzk.naver.com/live/${chzzk}` : 'https://www.youtube.com/watch?v=demo') : null,
+    live_started_at: live ? new Date(Date.now() - n * 600000).toISOString() : null, youtube_channel_id: null, profile_synced_at: null,
     active: true, created_at: iso('2026-09-01T12:00:00+09:00'), updated_at: iso('2026-10-20T12:00:00+09:00')
   }));
   const player_rank_stats = roster.map(([n, , , , , most, rp, games, wins]) => ({

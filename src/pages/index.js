@@ -1,8 +1,8 @@
 import { startPublic } from '../components/shell.js';
-import { html, mount, safeUrl } from '../lib/dom.js';
+import { html, mount, raw } from '../lib/dom.js';
 import { select } from '../lib/db.js';
 import { loadEvents, nextEvent, loadPlayers, loadMatchList, loadEventDetail } from '../lib/api.js';
-import { dateKo, timeKo, FORMAT_LABEL, num, pct, score, avatar, tierChip, liveBadge, medalClass, chzzkUrl } from '../lib/fmt.js';
+import { dateKo, timeKo, FORMAT_LABEL, num, pct, score, avatar, tierChip, liveBadge, medalClass, liveHref, PLATFORM_LABEL } from '../lib/fmt.js';
 
 startPublic('home', async (main) => {
   const [events, { list, byId, season }, matches] = await Promise.all([loadEvents(), loadPlayers(), loadMatchList()]);
@@ -49,8 +49,8 @@ startPublic('home', async (main) => {
     ? html`<section aria-labelledby="live-title" class="stack" style="gap: 16px">
         <div class="flex" style="gap: 12px"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--red); box-shadow: 0 0 0 5px #FDE2E3"></span><h2 id="live-title" style="font-family: var(--head); font-size: 26px">지금 방송 중</h2><span class="chip soft plain num">${live.length}명</span></div>
         <div class="grid" style="--min: 250px">
-          ${live.map((p) => html`<a class="card" style="gap: 12px; padding: 16px; color: var(--ink); text-decoration: none; border-radius: 24px" href="${safeUrl(p.chzzkId ? chzzkUrl(p.chzzkId) : p.youtubeUrl) || '/player?id=' + p.id}">
-            <span class="flex" style="gap: 12px; flex-wrap: nowrap; min-width: 0">${avatar(p, 'sm')}<span style="display: grid; min-width: 0"><span class="flex" style="gap: 6px; flex-wrap: nowrap; min-width: 0"><span style="font-family: var(--head); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${p.name}</span>${liveBadge(true)}</span><span class="muted" style="font-size: 13px; font-weight: 600">${p.tier}티어 · ${p.chzzkId ? '치지직' : '유튜브'}</span></span></span>
+          ${live.map((p) => html`<a class="card" style="gap: 12px; padding: 16px; color: var(--ink); text-decoration: none; border-radius: 24px" href="${liveHref(p) || '/player?id=' + p.id}"${liveHref(p) ? raw(' target="_blank" rel="noopener"') : ''}>
+            <span class="flex" style="gap: 12px; flex-wrap: nowrap; min-width: 0">${avatar(p, 'sm')}<span style="display: grid; min-width: 0"><span class="flex" style="gap: 6px; flex-wrap: nowrap; min-width: 0"><span style="font-family: var(--head); font-size: 18px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${p.name}</span>${liveBadge(true)}</span><span class="muted" style="font-size: 13px; font-weight: 600">${p.tier}티어 · ${PLATFORM_LABEL[p.livePlatform] || '방송'}</span></span></span>
             ${p.liveTitle ? html`<span style="font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${p.liveTitle}</span>` : ''}
             <span class="muted" style="font-size: 13px">${p.liveViewers ? html`시청자 <b class="num" style="color: var(--ink)">${num(p.liveViewers)}</b> · ` : ''}눌러서 놀러 가기!</span>
           </a>`)}

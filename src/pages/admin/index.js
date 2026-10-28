@@ -13,6 +13,10 @@ startAdmin('home', async (main, { user }) => {
   ]);
   const liveDevices = (devices || []).filter((d) => !d.revoked_at);
   const lastUpload = liveDevices.map((d) => d.last_seen_at).filter(Boolean).sort().pop();
+  const withChannel = list.filter((p) => p.active && (p.chzzkId || p.youtubeUrl));
+  const lastLiveCheck = withChannel.map((p) => p.liveCheckedAt).filter(Boolean).sort().pop();
+  const liveFresh = lastLiveCheck && Date.now() - Date.parse(lastLiveCheck) < 20 * 60000;
+  const liveNow = withChannel.filter((p) => p.isLive).length;
   const next = nextEvent(events);
   const synced = list.filter((p) => p.rank?.syncedAt);
   const lastSync = synced.map((p) => p.rank.syncedAt).sort().pop();
@@ -47,7 +51,7 @@ startAdmin('home', async (main, { user }) => {
       <section class="card side"><h2>연동 상태</h2>
         <ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 10px">
           <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: ${synced.length ? 'var(--good)' : 'var(--muted)'}"></span><span style="flex: 1 1 auto; display: grid"><b>이터널 리턴 Open API</b><small class="muted" style="font-weight: 600">${synced.length ? `솔로 랭크 점수 · 마지막 동기화 ${dateTimeShort(lastSync)}` : '아직 동기화 전'}</small></span></li>
-          <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--muted)"></span><span style="flex: 1 1 auto; display: grid"><b>치지직 · 유튜브</b><small class="muted" style="font-weight: 600">프로필 사진 · LIVE ON · 다음 단계에서 연결해요</small></span></li>
+          <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: ${liveFresh ? 'var(--good)' : lastLiveCheck ? 'var(--t3)' : 'var(--muted)'}"></span><span style="flex: 1 1 auto; display: grid"><b>치지직 · 유튜브</b><small class="muted" style="font-weight: 600">${!withChannel.length ? '방송 채널을 넣은 선수가 아직 없어요' : lastLiveCheck ? `방송 중 ${liveNow}명 · 마지막 확인 ${dateTimeShort(lastLiveCheck)}${liveFresh ? '' : ' (자동 확인이 멈췄어요)'}` : '아직 확인 전 · 선수 관리에서 새로 고침'}</small></span></li>
           <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: ${liveDevices.length ? 'var(--good)' : 'var(--muted)'}"></span><span style="flex: 1 1 auto; display: grid"><b>업로드 장치</b><small class="muted" style="font-weight: 600">${liveDevices.length ? `${liveDevices.length}대 등록 · ${lastUpload ? '마지막 업로드 ' + dateTimeShort(lastUpload) : '아직 업로드 없음'}` : '등록된 장치 없음'}</small></span></li>
           <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--muted)"></span><span style="flex: 1 1 auto; display: grid"><b>디스코드 봇</b><small class="muted" style="font-weight: 600">MVP 투표 · 참가 신청 · 준비 중</small></span></li>
         </ul>

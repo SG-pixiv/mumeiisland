@@ -8,3 +8,7 @@ verify_jwt = false
 [functions.upload-result]
 # 게임 PC 업로드 프로그램이 장치 키(x-device-key)로 보내요. 키 확인은 함수 안에서 해요
 verify_jwt = false
+
+[functions.live-sync]
+# 2분마다 크론(x-cron-secret) 또는 관리자 로그인 토큰으로 불러요. 확인은 함수 안에서 해요
+verify_jwt = false

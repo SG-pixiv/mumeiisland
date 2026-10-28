@@ -2,7 +2,8 @@ import { startAdmin } from '../../components/shell.js';
 import { html, mount, on, toast, errorText, safeUrl } from '../../lib/dom.js';
 import { select, insert, update, upsert, invokeFunction } from '../../lib/db.js';
 import { loadPlayers } from '../../lib/api.js';
-import { avatar, num, pct, dateTimeShort, parseChzzkId, chzzkUrl } from '../../lib/fmt.js';
+import { avatar, num, pct, dateTimeShort, parseChzzkId, chzzkUrl, PLATFORM_LABEL } from '../../lib/fmt.js';
+import { parseYoutubeRef } from '../../../supabase/functions/_shared/live.js';
 
 const ROLES = ['브루저', '원거리 딜러', '스킬 딜러', '탱커', '서포터', '암살자'];
 
@@ -48,7 +49,7 @@ startAdmin('players', async (main) => {
         <fieldset><legend>프로필 사진</legend>
           ${[['chzzk', '치지직 프로필 사진'], ['youtube', '유튜브 프로필 사진'], ['upload', '이미지 주소 직접 넣기']].map(([v, l]) => html`<label class="radio"><input type="radio" name="photoSource" value="${v}" ${d.photoSource === v ? 'checked' : ''}>${l}</label>`)}
           <input class="input" name="customPhoto" value="${d.customPhoto}" placeholder="https://… 이미지 주소 (직접 넣기일 때)">
-          <span class="muted" style="font-size: 12px; font-weight: 600">치지직 · 유튜브 사진은 각 API를 연결하면 자동으로 채워져요.</span>
+          <span class="muted" style="font-size: 12px; font-weight: 600">치지직 · 유튜브 사진은 저장하면 바로 받아 오고, 12시간마다 새로 받아요. (유튜브는 YouTube API 키가 필요해요)</span>
         </fieldset>
         <label class="field">장점 한 줄 <input name="note" maxlength="60" value="${d.note}" placeholder="예: 운영 콜, 교전 판단"></label>
         <label class="field">디스코드 아이디 (운영진만 봐요) <input name="discordId" value="${d.discordId}" placeholder="나중에 봇 연동 때 써요"></label>
@@ -68,7 +69,7 @@ startAdmin('players', async (main) => {
     const issues = players.filter((p) => !p.rank || p.rank.error).length;
     mount(main, html`
       <div class="page-head"><div><h1>선수 관리</h1><p class="lead">방송 채널이랑 이리 닉네임만 연결해 두면 프로필 사진, LIVE ON, 랭크 승률은 자동으로 채워 드릴게요!</p></div>
-        <span class="flex"><button class="btn sky" type="button" data-sync-all ${state.syncing ? 'disabled' : ''}>${state.syncing ? '동기화 중…' : '이리 데이터 전체 동기화'}</button><button class="btn pink" type="button" data-new>새 선수 추가</button></span></div>
+        <span class="flex"><button class="btn sky" type="button" data-sync-all ${state.syncing ? 'disabled' : ''}>${state.syncing ? '동기화 중…' : '이리 데이터 전체 동기화'}</button><button class="btn" type="button" data-live-sync ${state.syncing ? 'disabled' : ''}>방송 · 프로필 새로 고침</button><button class="btn pink" type="button" data-new>새 선수 추가</button></span></div>
       ${state.syncText ? html`<p class="notice" role="status" style="margin: 0">${state.syncText}</p>` : ''}
       <div class="flex">
         <label class="sr-only" for="q">선수 검색</label>
@@ -80,7 +81,7 @@ startAdmin('players', async (main) => {
           ${rows.length ? html`<div class="table-wrap"><table class="data" style="min-width: 560px"><thead><tr><th>선수</th><th>방송 채널</th><th>이리 연동 (솔로 랭크)</th><th><span class="sr-only">수정</span></th></tr></thead><tbody>
             ${rows.map((p) => { const s = syncState(p); return html`<tr class="${state.draft?.id === p.id ? 'changed' : ''}" style="${p.active ? '' : 'opacity: 0.6'}">
               <td><span class="flex" style="flex-wrap: nowrap">${avatar(p, 'sm')}<span style="display: grid"><b>${p.name}</b><small class="muted" style="font-weight: 600">${p.tier}티어 · ${p.role || '역할 미정'} · ${p.erNickname}${p.active ? '' : ' · 쉬는 중'}</small></span></span></td>
-              <td><span class="flex" style="gap: 4px">${p.chzzkId ? html`<span class="chip sky" style="font-size: 12px; padding: 0 9px">치지직</span>` : ''}${safeUrl(p.youtubeUrl) ? html`<span class="chip soft" style="font-size: 12px; padding: 0 9px">유튜브</span>` : ''}${!p.chzzkId && !p.youtubeUrl ? html`<span class="muted" style="font-size: 12px">없음</span>` : ''}</span></td>
+              <td><span class="flex" style="gap: 4px">${p.chzzkId ? html`<span class="chip sky" style="font-size: 12px; padding: 0 9px">치지직</span>` : ''}${safeUrl(p.youtubeUrl) ? html`<span class="chip soft" style="font-size: 12px; padding: 0 9px">유튜브</span>` : ''}${!p.chzzkId && !p.youtubeUrl ? html`<span class="muted" style="font-size: 12px">없음</span>` : ''}${p.isLive ? html`<span class="live sm">LIVE ${PLATFORM_LABEL[p.livePlatform] || ''}</span>` : ''}</span>${p.liveCheckedAt ? html`<small class="muted" style="display: block; font-weight: 600">확인 ${dateTimeShort(p.liveCheckedAt)}</small>` : ''}</td>
               <td><span class="chip ${s.cls}" style="font-size: 12px; padding: 1px 10px">${s.text}</span>${p.rank?.syncedAt ? html`<br><small class="muted">${dateTimeShort(p.rank.syncedAt)}</small>` : ''}</td>
               <td class="r"><button class="btn sm ${state.draft?.id === p.id ? 'pink' : 'ghost'}" type="button" data-edit="${p.id}" aria-label="${p.name} 수정">수정</button></td>
             </tr>`; })}
@@ -115,6 +116,24 @@ startAdmin('players', async (main) => {
     draw();
   };
 
+  // 치지직 · 유튜브: 방송 상태 + 프로필 사진 (서버 함수 live-sync)
+  const runLive = async (playerId = null, quiet = false) => {
+    if (!quiet) { state.syncing = true; state.syncText = '치지직 · 유튜브에서 방송 상태랑 프로필 사진을 가져오는 중이에요…'; draw(); }
+    try {
+      const r = await invokeFunction('live-sync', playerId ? { player_id: playerId, refresh_profiles: true } : { refresh_profiles: true });
+      const errs = r.errors || [];
+      state.syncText = r.demo
+        ? '지금은 예시 데이터라 실제로 확인하지는 않았어요.'
+        : `방송 확인 완료! ${r.checked}명 확인 · 방송 중 ${r.live?.length || 0}명${r.live?.length ? ` (${r.live.slice(0, 3).join(', ')})` : ''}${errs.length ? ` · 확인 필요 ${errs.length}건: ${errs.slice(0, 2).join(' / ')}${errs.length > 2 ? ' …' : ''}` : ''}`;
+      await reload();
+    } catch (e) {
+      state.syncText = '앗, 방송 정보를 가져오지 못했어요: ' + errorText(e);
+    }
+    if (!quiet) state.syncing = false;
+    draw();
+  };
+  on(main, 'click', '[data-live-sync]', () => runLive());
+
   on(main, 'input', '#q', (e) => { state.query = e.target.value; const pos = e.target.selectionStart; draw(); const q = main.querySelector('#q'); q.focus(); q.setSelectionRange(pos, pos); });
   on(main, 'click', '[data-filter]', (_e, b) => { state.filter = b.dataset.filter; draw(); });
   on(main, 'click', '[data-new]', () => { state.draft = blank(); draw(); main.querySelector('[name="name"]')?.focus(); });
@@ -128,7 +147,8 @@ startAdmin('players', async (main) => {
     const d = readForm(f);
     const chzzkId = d.chzzk ? parseChzzkId(d.chzzk) : '';
     if (d.chzzk && !chzzkId) { toast('치지직 주소에서 채널 ID를 못 찾았어요. 방송국 주소를 그대로 붙여 넣어 주세요.', true); return; }
-    if (d.youtube && !safeUrl(d.youtube)) { toast('유튜브 주소가 이상해요. https:// 로 시작하는 주소를 넣어 주세요.', true); return; }
+    if (d.youtube && !parseYoutubeRef(d.youtube)) { toast('유튜브는 채널 주소를 넣어 주세요. 예: https://www.youtube.com/@핸들 (영상 주소는 안 돼요)', true); return; }
+    if (d.youtube && !/^https?:\/\//i.test(d.youtube)) d.youtube = d.youtube.startsWith('@') ? `https://www.youtube.com/${d.youtube}` : `https://${d.youtube}`;
     const row = {
       display_name: d.name, er_nickname: d.erNickname, role: d.role || null, strength_note: d.note || null,
       chzzk_channel_id: chzzkId || null, youtube_url: d.youtube || null, photo_source: d.photoSource,
@@ -136,12 +156,13 @@ startAdmin('players', async (main) => {
     };
     try {
       let id = d.id;
+      const before = id ? players.find((p) => p.id === id) : null;
+      const channelChanged = (chzzkId || '') !== (before?.chzzkId || '') || (d.youtube || '') !== (before?.youtubeUrl || '');
       if (!id) {
         const [made] = await insert('players', { ...row, balance_tier: d.tier });
         id = made.id;
         await insert('tier_history', { player_id: id, from_tier: null, to_tier: d.tier, memo: '첫 등록' });
       } else {
-        const before = players.find((p) => p.id === id);
         if (before && before.erNickname !== d.erNickname) row.er_uid = null; // 닉네임이 바뀌면 UID 를 다시 찾게
         await update('players', row, { id });
       }
@@ -150,6 +171,7 @@ startAdmin('players', async (main) => {
       await reload();
       state.draft = toDraft(players.find((p) => p.id === id));
       draw();
+      if (channelChanged && (chzzkId || d.youtube)) runLive(id, true);   // 새 채널의 사진 · 방송 상태를 바로 가져와요
     } catch (err) {
       const m = errorText(err);
       toast(/duplicate|23505/.test(m) ? '같은 이름이나 게임 닉네임을 가진 선수가 이미 있어요.' : '저장하지 못했어요: ' + m, true);

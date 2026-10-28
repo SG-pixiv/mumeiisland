@@ -147,6 +147,7 @@ export async function invokeFunction(name, body = {}) {
       list.forEach((p) => { const s = tables.player_rank_stats.find((x) => x.player_id === p.id); if (s) s.synced_at = now; });
       return { season_id: 33, total: list.length, done: list.length, next_offset: null, demo: true, results: list.map((p) => ({ player_id: p.id, name: p.display_name, ok: true })) };
     }
+    if (name === 'live-sync') return { demo: true, checked: 0, live: [], errors: [] };
     return { demo: true };
   }
   const { data, error } = await supabase.functions.invoke(name, { body });
