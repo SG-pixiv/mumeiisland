@@ -22,6 +22,30 @@ const roster = [
 
 const charCodes = { 재키: 1, 아야: 2, 현우: 6, 매그너스: 7, 니키: 10, 요한: 13, 아이솔: 18, 혜진: 22, 레녹스: 41, 로지: 42, 알렉스: 45, 시셀라: 49, 마커스: 51, 리오: 53, 비앙카: 57, 키아라: 46, 유키: 21, 히스이: 30, 아르다: 72, 라우라: 61, 에스텔: 58, 일레븐: 50, 바냐: 64, 프리야: 68, 나딘: 16 };
 
+const charEn = { 재키: 'Jackie', 아야: 'Aya', 현우: 'Hyunwoo', 매그너스: 'Magnus', 니키: 'Nicky', 요한: 'Johann', 아이솔: 'Isol', 혜진: 'Hyejin', 레녹스: 'Lenox', 로지: 'Rozzi', 알렉스: 'Alex', 시셀라: 'Sissela', 마커스: 'Markus', 리오: 'Rio', 비앙카: 'Bianca', 키아라: 'Chiara', 유키: 'Yuki', 히스이: 'Hisui', 아르다: 'Arda', 라우라: 'Laura', 에스텔: 'Estelle', 일레븐: 'Eleven', 바냐: 'Vanya', 프리야: 'Priya', 나딘: 'Nadine' };
+
+// 검토 대기 예시: 게임 "데이터 저장" CSV 와 같은 형식 (12번 선수는 닉네임을 바꾼 상황, 3팀 한 명은 들개에게 사망)
+function demoCsv() {
+  const head = 'rank, level, character, nickname, weapon, best weapon mastery, best weapon mastery level, total field kill, team kill, elimination, down can not eliminate, repeat down can not eliminate, down can eliminate, repeat down can eliminate, kill, assist, hunting, killer, gameId, teamName, tournament total score, tournament rank score, tournament kill score';
+  // 팀 번호, 순위, [선수 번호, 실험체, 킬, 어시, 죽인 사람], elim, down 0.5, down 1
+  const teams = [
+    [2, 1, [[1, '재키', 5, 3, ''], [5, '아야', 4, 4, ''], [12, '로지', 2, 6, '']], 7, 2, 2],
+    [1, 2, [[2, '아이솔', 4, 2, 'dawn_hunter'], [6, '현우', 3, 3, 'supplybox'], [9, '혜진', 1, 5, 'dawn_hunter']], 4, 2, 2],
+    [4, 3, [[4, '레녹스', 2, 2, 'lumia_native'], [7, '요한', 1, 3, 'dawn_hunter'], [11, '알렉스', 2, 1, 'factory_night99']], 3, 0, 2],
+    [3, 4, [[3, '비앙카', 2, 1, 'hotel_guest'], [8, '나딘', 1, 1, 'WildDog'], [10, '니키', 0, 2, 'supplybox']], 1, 2, 0]
+  ];
+  const RS = [10, 7, 5, 4];
+  const lines = [head];
+  for (const [no, rank, members, elim, half, full] of teams) {
+    const tfk = elim + half + full, ks = elim + half * 0.5 + full;
+    for (const [n, ch, k, a, killer] of members) {
+      const nick = n === 12 ? 'factory_night99' : roster[n - 1][2];
+      lines.push([rank, 18 - rank, charEn[ch], nick, '', 'Defense', 15, tfk, tfk, elim, half, 0, full, 0, k, a, 20, killer, 67100001, `Team ${no}`, RS[rank - 1] + ks, RS[rank - 1], ks].join(', '));
+    }
+  }
+  return '\uFEFF' + lines.join('\r\n') + '\r\n';
+}
+
 function build() {
   const players = roster.map(([n, name, nick, tier, role, , , , , chzzk, yt, live]) => ({
     id: T(n), display_name: name, er_nickname: nick, er_uid: 'demo-' + n, balance_tier: tier, role, strength_note: n === 1 ? '운영 콜, 교전 판단' : null,
@@ -36,7 +60,7 @@ function build() {
     raw: null, synced_at: iso('2026-10-27T05:00:00+09:00'), sync_error: null
   }));
   const player_private = roster.map(([n]) => ({ player_id: T(n), discord_id: null, memo: null }));
-  const er_characters = Object.entries(charCodes).map(([name_ko, code]) => ({ code, name_ko }));
+  const er_characters = Object.entries(charCodes).map(([name_ko, code]) => ({ code, name_ko, name_en: charEn[name_ko] || null }));
   const tier_history = [
     { id: 1, player_id: T(1), from_tier: null, to_tier: 2, memo: '첫 등록', changed_by: null, changed_at: iso('2026-09-12T19:00:00+09:00') },
     { id: 2, player_id: T(1), from_tier: 2, to_tier: 1, memo: '최근 내전 활약 반영', changed_by: null, changed_at: iso('2026-10-10T23:00:00+09:00') },
@@ -94,7 +118,7 @@ function build() {
     });
   });
   // 검토 대기 중인 라운드 (관리자만 보임)
-  rounds.push({ id: '00000000-0000-4000-a000-000000000099', event_id: E(2), round_no: 4, status: 'pending', source: 'device', file_name: 'CustomGame_20261024_2250.csv', raw_csv: null, played_at: iso('2026-10-24T22:50:00+09:00'), uploaded_at: iso('2026-10-24T23:12:00+09:00'), confirmed_at: null, confirmed_by: null });
+  rounds.push({ id: '00000000-0000-4000-a000-000000000099', event_id: E(2), round_no: 4, status: 'pending', source: 'device', file_name: 'GameResult_48213.csv', raw_csv: demoCsv(), game_id: 67100001, device_id: 'dev-1', played_at: iso('2026-10-24T22:50:00+09:00'), uploaded_at: iso('2026-10-24T23:12:00+09:00'), confirmed_at: null, confirmed_by: null });
 
   // 10월 31일 드래프트 (지난 내전 순위 꼴찌 팀장부터) · 5번째 지명까지 진행
   const captains = [4, 3, 1, 2].map(T);
@@ -113,7 +137,9 @@ function build() {
     { id: 'k1', key_hash: 'x', prefix: 'Q9ZP', memo: '새 운영진', target_discord: null, expires_at: iso('2026-10-28T10:00:00+09:00'), created_by: 'demo-owner', created_via: 'web', created_at: iso('2026-10-27T09:00:00+09:00'), used_at: null, used_by: null, revoked_at: null }
   ];
 
-  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys };
+  const upload_devices = [{ id: 'dev-1', name: 'SG 게임 PC', key_hash: 'demo', prefix: 'K7QX', created_by: 'demo-owner', created_at: iso('2026-10-20T19:00:00+09:00'), last_seen_at: iso('2026-10-24T23:12:00+09:00'), last_file: 'GameResult_48213.csv', revoked_at: null }];
+
+  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, upload_devices };
 }
 
 export const tables = build();

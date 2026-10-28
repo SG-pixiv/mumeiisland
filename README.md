@@ -107,12 +107,32 @@ select cron.schedule('er-sync-daily', '0 20 * * *',  -- 매일 05:00 (한국 시
 
 ---
 
+### 10. 결과 검토 · 업로드 장치 (2단계)
+게임 결과 CSV 를 올리고 확정하는 기능이에요. 1~9번을 끝낸 뒤 한 번만 하면 돼요.
+
+1. **DB 추가**: Supabase SQL Editor 에 `supabase/migrations/20261028000000_results.sql` 을 통째로 붙여 넣고 Run
+2. **서버 함수 올리기** (PowerShell, 무명섬 폴더에서)
+   ```powershell
+   npx supabase functions deploy upload-result --project-ref <Supabase 프로젝트 ID> --use-api
+   npx supabase functions deploy er-sync --project-ref <Supabase 프로젝트 ID> --use-api
+   ```
+   `er-sync` 는 실험체 영문 이름(CSV 는 영문)을 받아 오도록 바뀌어서 한 번 더 올려요. 다음 동기화 때 자동으로 채워져요.
+3. **게임 PC 업로드 프로그램**: 관리자 → **업로드 장치** → 장치 키 만들기 → 파일 3개(프로그램 · 실행 파일 · 설정 파일)를 한 폴더에 넣고 `start-mumei-uploader.bat` 실행 (Node.js 18 이상 필요)
+4. 게임 결과 화면에서 **데이터 저장** → 관리자 → **결과 검토**에 판이 들어오면 확인하고 **확정**
+
+알아 둘 것
+- 사용자 설정 대전 방 설정에서 **대회 점수 산정**을 켜 두세요. 그래야 0.5점 킬(1~2일차)이 정확하게 들어와요.
+- 처치자 불명(야생동물 · 금지구역 등) 사망은 −1 감점으로 자동 제안돼요. 최종 2팀이 남은 뒤의 사망이면 검토 화면에서 빼 주세요.
+- 업로드 프로그램이 없어도 결과 검토 화면에서 CSV 를 직접 올릴 수 있어요.
+- 사용자 설정 대전은 이리 API 에 기록이 남지 않아서 딜량은 쓰지 않아요. 내전 기록은 점수 기준이에요.
+
 ## 내 컴퓨터에서 고치면서 보기
 ```powershell
 npm install
 copy .env.example .env.local   # 값 채우기 (안 채우면 예시 데이터로 열려요)
 npm run dev                     # http://localhost:5173
 ```
+`npm test` 로 게임 결과 CSV 읽기 테스트를 돌릴 수 있어요 (`tests/fixtures` 의 실제 형식 예시).
 
 ## 보안 규칙 요약
 - 공개 페이지는 누구나 볼 수 있어요. 쓰기는 전부 **관리자만** 할 수 있어요. (DB 행 단위 보안 RLS)
@@ -121,8 +141,6 @@ npm run dev                     # http://localhost:5173
 - 티어(1~3)는 운영진만 바꿀 수 있고, 바꿀 때마다 기록이 남아요.
 
 ## 다음 단계
-- 결과 검토 (CSV 업로드 → 닉네임 매칭 → 0.5 KS 킬 · 감점 확인 → 확정)
 - 팀 편성 · 드래프트 관리자 화면 (자동 편성 · 자물쇠 · 밸런스 추천 · 자동 채우기)
-- 업로드 장치 (게임 PC에서 CSV 자동 업로드)
 - 치지직 · 유튜브 (프로필 사진 · LIVE ON)
 - 디스코드 봇 (오라클 서버 · MVP 투표 · 참가 신청 · `/관리자키`)

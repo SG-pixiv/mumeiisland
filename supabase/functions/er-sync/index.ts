@@ -105,6 +105,29 @@ Deno.serve(async (req) => {
     const { data: charRows } = await db.from('er_characters').select('code, name_ko');
     const names = new Map<number, string>((charRows ?? []).map((c: any) => [c.code, c.name_ko]));
 
+    // 실험체 영문 이름 (게임 결과 CSV 는 영문 이름이라 결과 검토에서 한글로 바꿀 때 써요). 실패해도 동기화는 계속해요.
+    try {
+      const { count: noEn, error: enErr } = await db.from('er_characters').select('code', { count: 'exact', head: true }).is('name_en', null);
+      if (!enErr && (noEn || body.refresh_characters)) {
+        let en = new Map<number, string>();
+        const cr = await er('/v2/data/Character');
+        for (const c of Array.isArray(cr.body?.data) ? cr.body.data : []) {
+          const code = Number(c?.code);
+          const name = String(c?.name ?? '').trim();
+          if (code && name) en.set(code, name);
+        }
+        if (!en.size) {
+          const l10nEn = await er('/v1/l10n/English');
+          const pathEn = l10nEn.body?.data?.l10Path;
+          if (pathEn) en = parseCharacterNames(await (await fetch(pathEn)).text());
+        }
+        const rows = [...en].map(([code, name_en]) => ({ code, name_en, name_ko: names.get(code) ?? name_en }));
+        if (rows.length) await db.from('er_characters').upsert(rows);
+      }
+    } catch (e) {
+      console.warn('실험체 영문 이름을 받지 못했어요', e);
+    }
+
     // 대상 선수
     let q = db.from('players').select('id, display_name, er_nickname, er_uid').eq('active', true).order('display_name');
     if (body.player_id) q = q.eq('id', body.player_id);

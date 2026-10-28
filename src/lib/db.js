@@ -114,7 +114,24 @@ const demoRpc = {
     return `${k.slice(0, 4)}-${k.slice(4, 8)}-${k.slice(8)}`;
   },
   revoke_admin_key: ({ p_id }) => { const k = tables.admin_keys.find((x) => x.id === p_id); if (k) k.revoked_at = new Date().toISOString(); return null; },
-  set_admin_revoked: ({ p_user, p_revoked }) => { const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner'); if (a) a.revoked_at = p_revoked ? new Date().toISOString() : null; return null; }
+  set_admin_revoked: ({ p_user, p_revoked }) => { const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner'); if (a) a.revoked_at = p_revoked ? new Date().toISOString() : null; return null; },
+  create_device_key: ({ p_name }) => {
+    if (!String(p_name || '').trim()) throw new Error('장치 이름을 적어 주세요');
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+    const k = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => abc[b % 32]).join('');
+    tables.upload_devices.push({ id: crypto.randomUUID(), name: p_name.trim(), key_hash: 'demo', prefix: k.slice(0, 4), created_by: 'demo-owner', created_at: new Date().toISOString(), last_seen_at: null, last_file: null, revoked_at: null });
+    return k.match(/.{4}/g).join('-');
+  },
+  revoke_device: ({ p_id }) => { const d = tables.upload_devices.find((x) => x.id === p_id); if (d) d.revoked_at = new Date().toISOString(); return null; },
+  confirm_round: ({ p_round, p_event, p_round_no, p_teams, p_players }) => {
+    const r = tables.rounds.find((x) => x.id === p_round);
+    if (!r) throw new Error('라운드를 찾지 못했어요');
+    if (tables.rounds.some((x) => x.id !== p_round && x.event_id === p_event && x.round_no === p_round_no)) throw new Error(`이 내전에 이미 ${p_round_no}라운드가 있어요. 라운드 번호를 바꿔 주세요`);
+    Object.assign(r, { event_id: p_event, round_no: p_round_no, status: 'confirmed', confirmed_at: new Date().toISOString(), confirmed_by: 'demo-owner' });
+    tables.round_teams = tables.round_teams.filter((t) => t.round_id !== p_round).concat(p_teams.map((t) => ({ round_id: p_round, ...t })));
+    tables.round_players = tables.round_players.filter((x) => x.round_id !== p_round).concat(p_players.map((x, i) => ({ id: Date.now() + i, round_id: p_round, damage: 0, ...x })));
+    return null;
+  }
 };
 
 export async function rpc(fn, args = {}) {

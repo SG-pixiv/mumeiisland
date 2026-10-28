@@ -6,10 +6,13 @@ import { dateKo, timeKo, FORMAT_LABEL, dateTimeShort } from '../../lib/fmt.js';
 import { isDemo } from '../../lib/supabase.js';
 
 startAdmin('home', async (main, { user }) => {
-  const [events, { list }, pending, admins] = await Promise.all([
+  const [events, { list }, pending, admins, devices] = await Promise.all([
     loadEvents(), loadPlayers({ includeInactive: true }),
-    select('rounds', { eq: { status: 'pending' } }), select('admins')
+    select('rounds', { eq: { status: 'pending' } }), select('admins'),
+    select('upload_devices').catch(() => null)   // 2단계 SQL 실행 전이면 null
   ]);
+  const liveDevices = (devices || []).filter((d) => !d.revoked_at);
+  const lastUpload = liveDevices.map((d) => d.last_seen_at).filter(Boolean).sort().pop();
   const next = nextEvent(events);
   const synced = list.filter((p) => p.rank?.syncedAt);
   const lastSync = synced.map((p) => p.rank.syncedAt).sort().pop();
@@ -17,6 +20,8 @@ startAdmin('home', async (main, { user }) => {
   const noRank = list.filter((p) => p.active && p.rank && !p.rank.error && p.rank.score == null);
 
   const todos = [
+    devices === null && ['결과 검토용 DB 추가하기', 'Supabase SQL Editor 에서 20261028000000_results.sql 을 실행해 주세요 (README 10번)', '/admin/review', '확인'],
+    devices && !liveDevices.length && ['업로드 장치 연결하기', '게임 PC 에 업로드 프로그램을 켜 두면 결과 CSV 가 자동으로 올라와요', '/admin/devices', '설정하기'],
     !list.length && ['첫 선수 등록하기', '선수 관리에서 이름 · 게임 닉네임 · 티어를 넣어 주세요', '/admin/players', '선수 관리'],
     list.length && !synced.length && ['이리 데이터 처음 동기화', '솔로 랭크 점수랑 모스트 실험체를 가져와요', '/admin/players', '동기화'],
     syncIssues.length && synced.length && [`연동 확인 필요 ${syncIssues.length}명`, syncIssues.slice(0, 3).map((p) => p.name).join(' · ') + ' · 닉네임을 확인하고 다시 동기화해 주세요', '/admin/players', '선수 관리'],
@@ -43,7 +48,8 @@ startAdmin('home', async (main, { user }) => {
         <ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 10px">
           <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: ${synced.length ? 'var(--good)' : 'var(--muted)'}"></span><span style="flex: 1 1 auto; display: grid"><b>이터널 리턴 Open API</b><small class="muted" style="font-weight: 600">${synced.length ? `솔로 랭크 점수 · 마지막 동기화 ${dateTimeShort(lastSync)}` : '아직 동기화 전'}</small></span></li>
           <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--muted)"></span><span style="flex: 1 1 auto; display: grid"><b>치지직 · 유튜브</b><small class="muted" style="font-weight: 600">프로필 사진 · LIVE ON · 다음 단계에서 연결해요</small></span></li>
-          <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--muted)"></span><span style="flex: 1 1 auto; display: grid"><b>업로드 장치 · 디스코드 봇</b><small class="muted" style="font-weight: 600">결과 CSV 자동 업로드 · MVP 투표 · 준비 중</small></span></li>
+          <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: ${liveDevices.length ? 'var(--good)' : 'var(--muted)'}"></span><span style="flex: 1 1 auto; display: grid"><b>업로드 장치</b><small class="muted" style="font-weight: 600">${liveDevices.length ? `${liveDevices.length}대 등록 · ${lastUpload ? '마지막 업로드 ' + dateTimeShort(lastUpload) : '아직 업로드 없음'}` : '등록된 장치 없음'}</small></span></li>
+          <li class="flex" style="flex-wrap: nowrap"><span aria-hidden="true" style="width: 12px; height: 12px; border-radius: 50%; background: var(--muted)"></span><span style="flex: 1 1 auto; display: grid"><b>디스코드 봇</b><small class="muted" style="font-weight: 600">MVP 투표 · 참가 신청 · 준비 중</small></span></li>
         </ul>
         <p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">${loginLabel(user)}</p>
       </section>
