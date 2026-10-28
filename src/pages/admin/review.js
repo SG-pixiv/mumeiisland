@@ -17,7 +17,7 @@ const int = (v, min = 0) => Math.max(min, Math.round(Number(v) || 0));
 startAdmin('review', async (main) => {
   let events = [], players = [], rules = null, rounds = [];
   let chars = new Map();
-  const state = { sel: null, draft: null, busy: false, uploadEvent: null };
+  const state = { sel: null, draft: null, busy: false, uploadEvent: null, newEvent: null };
 
   // 지금 진행 중인 내전 (서버 함수와 같은 기준: 12시간 전 ~ 6시간 뒤 시작, 가장 가까운 것)
   const currentEventId = () => {
@@ -29,6 +29,10 @@ startAdmin('review', async (main) => {
   const nextRoundNo = (eventId, exceptId = null) =>
     Math.max(0, ...rounds.filter((r) => r.event_id === eventId && r.id !== exceptId).map((r) => r.round_no)) + 1;
   const eventTitle = (id) => events.find((e) => e.id === id)?.title ?? '내전 미지정';
+  const playedMs = (r) => Date.parse(r.played_at || r.uploaded_at);
+  // 이 판 앞뒤 12시간 안에 올라온, 아직 내전이 없는 판 (같은 날 내전으로 묶어요)
+  const unassignedNear = (round) => rounds.filter((r) => r.id !== round.id && !r.event_id && r.status !== 'confirmed' && Math.abs(playedMs(r) - playedMs(round)) <= 12 * 3600e3);
+  const defaultTitle = (round) => { const t = new Date(playedMs(round)); return `${t.getMonth() + 1}월 ${t.getDate()}일 내전`; };
 
   const reload = async () => {
     let ruleRows, charRows;
@@ -94,6 +98,7 @@ startAdmin('review', async (main) => {
     const round = rounds.find((r) => r.id === id);
     state.sel = id;
     state.draft = round ? await buildDraft(round) : null;
+    state.newEvent = round ? { title: defaultTitle(round), withOthers: true } : null;
     draw();
   };
 
@@ -101,7 +106,7 @@ startAdmin('review', async (main) => {
   const warnings = (d) => {
     const w = [];
     if (!d.parsed.ok) return [['pink', d.parsed.error]];
-    if (!d.eventId) w.push(['pink', '어느 내전의 판인지 골라 주세요.']);
+    if (!d.eventId && d.round.status !== 'confirmed') w.push(['pink', '어느 내전의 판인지 정해야 확정할 수 있어요. 아래에서 내전을 고르거나, 일정에 없던 내전이면 바로 만들어 주세요.']);
     if (!d.parsed.scoringOn) w.push(['warn', '대회 점수 산정이 꺼진 판이에요. 0.5점 킬은 CSV 의 "down can not eliminate" 값으로 채웠으니 한 번 확인해 주세요.']);
     if (d.parsed.hasBots) w.push(['', '봇이 들어 있는 판이에요. 봇만 있는 팀은 기본으로 저장하지 않아요.']);
     const inc = d.teams.filter((t) => t.include);
@@ -175,6 +180,21 @@ startAdmin('review', async (main) => {
       : html`<p class="empty">사람 선수가 없는 판이에요 (봇만 있어요).</p>`;
   };
 
+  const newEventForm = (d) => {
+    const others = unassignedNear(d.round);
+    const ne = state.newEvent;
+    const startMs = Math.min(playedMs(d.round), ...(ne.withOthers ? others.map(playedMs) : []));
+    return html`<form data-new-event class="stack" style="gap: 10px; background: var(--sky-soft); border: 2px dashed var(--ink); border-radius: 20px; padding: 14px 16px">
+      <b style="font-family: var(--head); font-size: 17px">일정에 없던 내전이면 여기서 바로 만들어요</b>
+      <label class="field">내전 이름 <input name="title" required maxlength="40" value="${ne.title}" data-new-title></label>
+      ${others.length ? html`<label class="flex" style="gap: 8px; align-items: center; font-size: 14px; font-weight: 700; flex-wrap: nowrap">
+        <input type="checkbox" name="withOthers" data-new-others ${ne.withOthers ? 'checked' : ''}>
+        <span>비슷한 시간(앞뒤 12시간)에 올라온 미지정 판 ${others.length}개도 같이 넣기 <small class="muted" style="font-weight: 600">게임 시각 순서로 1, 2, 3… 라운드가 돼요</small></span></label>` : ''}
+      <small class="muted" style="font-weight: 600">첫 판 게임 시각(${dateTimeShort(new Date(startMs).toISOString())})에 시작한 "확정" 상태 내전으로 만들어요. 이어서 하는 판은 업로드 프로그램이 이 내전으로 자동으로 넣어요. 이름 · 시간은 일정 관리에서 고칠 수 있어요.</small>
+      <div class="flex"><span class="spacer"></span><button type="submit" class="btn sky" ${state.busy ? 'disabled' : ''}>내전 만들고 ${others.length && ne.withOthers ? `${others.length + 1}판` : '이 판'} 넣기</button></div>
+    </form>`;
+  };
+
   const detail = () => {
     const d = state.draft;
     if (!d) return html`<section class="card"><h2>라운드를 골라 주세요</h2><p class="muted" style="margin: 0; font-weight: 600">왼쪽 목록에서 고르거나, CSV 를 올려 주세요. 게임 PC 에 업로드 프로그램을 켜 두면 "데이터 저장"을 누를 때마다 여기로 자동으로 들어와요.</p></section>`;
@@ -195,6 +215,7 @@ startAdmin('review', async (main) => {
           <label class="field">내전 <select data-event ${confirmed ? 'disabled' : ''}><option value="">내전 미지정</option>${events.map((e) => html`<option value="${e.id}" ${e.id === d.eventId ? 'selected' : ''}>${e.title}</option>`)}</select></label>
           <label class="field">라운드 번호 <input type="number" min="1" max="30" data-round-no value="${d.roundNo}" ${confirmed ? 'disabled' : ''}></label>
         </div>
+        ${!confirmed && !d.eventId ? newEventForm(d) : ''}
         <div class="stack" style="gap: 8px"><h3 style="font-family: var(--head); font-size: 19px">팀 결과</h3>
           <small class="muted" style="font-weight: 600">합계 = 순위 점수(RS) + 킬 점수(KS) − 감점. 0.5점 킬은 1~2일차(부활 가능한 시기) 킬이에요. 게임 대회 점수는 감점을 빼지 않아서 RS · KS 만 비교해요.</small>
           ${teamTable(d)}</div>
@@ -252,6 +273,33 @@ startAdmin('review', async (main) => {
     draw();
   });
   on(main, 'change', '[data-upload] select[name="event"]', (_e, el) => { state.uploadEvent = el.value; });
+  on(main, 'input', '[data-new-title]', (_e, el) => { state.newEvent.title = el.value; });
+  on(main, 'change', '[data-new-others]', (_e, el) => { state.newEvent.withOthers = el.checked; draw(); });
+
+  // ── 일정에 없던 내전: 만들고 미지정 판들을 라운드로 넣기
+  on(main, 'submit', '[data-new-event]', async (e, form) => {
+    e.preventDefault();
+    const d = state.draft;
+    if (!d || d.eventId) return;
+    const title = form.elements.title.value.trim();
+    if (!title) return toast('내전 이름을 적어 주세요.', true);
+    const group = [d.round, ...(form.elements.withOthers?.checked ? unassignedNear(d.round) : [])].sort((a, b) => playedMs(a) - playedMs(b));
+    const season = events.reduce((m, ev) => Math.max(m, ev.season || 1), 1);
+    state.busy = true; draw();
+    try {
+      const [ev] = await insert('events', {
+        title, starts_at: new Date(playedMs(group[0])).toISOString(), status: 'fixed', season, planned_rounds: Math.max(4, group.length)
+      });
+      for (const [i, r] of group.entries()) await update('rounds', { event_id: ev.id, round_no: i + 1 }, { id: r.id });
+      state.busy = false;
+      await reload();
+      await pick(d.round.id);
+      toast(`"${title}" 내전을 만들고 ${group.length}판을 넣었어요. 확인하고 확정해 주세요.`);
+    } catch (err) {
+      state.busy = false; draw();
+      toast('내전을 만들지 못했어요: ' + errorText(err), true);
+    }
+  });
 
   // ── CSV 직접 올리기
   on(main, 'submit', '[data-upload]', async (e, form) => {
@@ -289,7 +337,12 @@ startAdmin('review', async (main) => {
   on(main, 'click', '[data-confirm]', async () => {
     const d = state.draft;
     const inc = d.teams.filter((t) => t.include);
-    if (!d.eventId) return toast('내전을 먼저 골라 주세요.', true);
+    if (!d.eventId) {
+      const input = main.querySelector('[data-new-title]');
+      input?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      input?.focus({ preventScroll: true });
+      return toast('어느 내전의 판인지 먼저 정해 주세요. 내전을 고르거나, 위의 파란 칸에서 바로 만들 수 있어요.', true);
+    }
     if (!inc.length) return toast('저장할 팀이 없어요.', true);
     if (new Set(inc.map((t) => t.teamNo)).size !== inc.length) return toast('같은 팀 번호가 있어요. 팀 번호를 확인해 주세요.', true);
     if (rounds.some((r) => r.id !== d.round.id && r.event_id === d.eventId && r.round_no === d.roundNo)) return toast(`이 내전에 이미 ${d.roundNo}라운드가 있어요. 라운드 번호를 바꿔 주세요.`, true);
