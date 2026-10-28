@@ -1,0 +1,18 @@
+{
+  "name": "mumeiisland-bot",
+  "private": true,
+  "version": "1.0.0",
+  "description": "무명섬 디스코드 봇 (계정 연결 · 참가 신청 · MVP 투표 · /관리자키)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.6"
+  },
+  "scripts": {
+    "start": "node --env-file=.env src/index.js",
+    "register": "node --env-file=.env src/register.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.118.0",
+    "discord.js": "^14.27.0"
+  }
+}

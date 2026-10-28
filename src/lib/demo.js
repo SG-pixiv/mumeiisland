@@ -143,7 +143,16 @@ function build() {
 
   const upload_devices = [{ id: 'dev-1', name: 'SG 게임 PC', key_hash: 'demo', prefix: 'K7QX', created_by: 'demo-owner', created_at: iso('2026-10-20T19:00:00+09:00'), last_seen_at: iso('2026-10-24T23:12:00+09:00'), last_file: 'GameResult_48213.csv', revoked_at: null }];
 
-  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, upload_devices };
+  // 디스코드 봇 (6단계): 연결 요청 하나, 봇 켜짐 신호, 지난 두 내전의 MVP 투표 결과
+  const discord_link_requests = [{ id: 'link-1', discord_id: '1029384756', discord_name: '새벽사냥꾼', player_id: T(1), status: 'pending', created_at: iso('2026-10-28T18:20:00+09:00'), decided_at: null, decided_by: null }];
+  const bot_status = [{ id: 1, bot_tag: '무명섬#1234', guild_id: 'demo', last_seen_at: new Date(Date.now() - 2 * 60000).toISOString() }];
+  const bot_messages = [];
+  const mvp_votes = [];
+  events.find((e) => e.id === E(1)).mvp_vote_result = { counts: { [T(1)]: 4, [T(5)]: 4, [T(9)]: 2 }, tied: [T(1), T(5)], picked: T(1), drawn: true, votes: 10 };
+  events.find((e) => e.id === E(2)).mvp_vote_result = { counts: { [T(2)]: 6, [T(6)]: 3, [T(10)]: 2 }, tied: [T(2)], picked: T(2), drawn: false, votes: 11 };
+  events.forEach((e) => { e.mvp_vote_status = e.mvp_vote_result ? 'closed' : 'none'; });
+
+  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes };
 }
 
 export const tables = build();

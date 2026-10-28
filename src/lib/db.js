@@ -115,6 +115,17 @@ const demoRpc = {
   },
   revoke_admin_key: ({ p_id }) => { const k = tables.admin_keys.find((x) => x.id === p_id); if (k) k.revoked_at = new Date().toISOString(); return null; },
   set_admin_revoked: ({ p_user, p_revoked }) => { const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner'); if (a) a.revoked_at = p_revoked ? new Date().toISOString() : null; return null; },
+  decide_discord_link: ({ p_id, p_ok }) => {
+    const r = (tables.discord_link_requests || []).find((x) => x.id === p_id);
+    if (!r || r.status !== 'pending') throw new Error('이미 처리된 요청이에요');
+    if (p_ok) {
+      tables.player_private.forEach((x) => { if (x.discord_id === r.discord_id && x.player_id !== r.player_id) x.discord_id = null; });
+      const pp = tables.player_private.find((x) => x.player_id === r.player_id);
+      if (pp) pp.discord_id = r.discord_id; else tables.player_private.push({ player_id: r.player_id, discord_id: r.discord_id, memo: null });
+    }
+    r.status = p_ok ? 'approved' : 'rejected'; r.decided_at = new Date().toISOString();
+    return null;
+  },
   create_device_key: ({ p_name }) => {
     if (!String(p_name || '').trim()) throw new Error('장치 이름을 적어 주세요');
     const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

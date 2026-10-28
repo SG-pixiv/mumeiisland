@@ -42,7 +42,7 @@ startPublic('matches', async (main) => {
     const card = (label, who, value, bg, fg) => html`<div style="display: flex; align-items: center; gap: 14px; background: ${bg}; border: 2px solid var(--ink); border-radius: 24px; padding: 18px; box-shadow: 0 5px 0 var(--ink)">
       <span style="display: grid; min-width: 0"><span style="font-size: 13px; font-weight: 700">${label}</span><span style="font-family: var(--head); font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${who}</span><span class="num" style="color: ${fg}">${value}</span></span></div>`;
     return html`<div class="grid" style="--min: 230px">
-      ${mvp ? card('MVP', mvp.name, '디스코드 투표', 'var(--t3s)', 'var(--t3)') : ''}
+      ${mvp ? card('MVP', mvp.name, mvpNote(ev), 'var(--t3s)', 'var(--t3)') : ''}
       ${card('최다 킬', topKill.name, `${topKill.kills}킬 · ${roundNos.length}라운드 합계`, 'var(--soft)', 'var(--pink-ink)')}
       ${card('최다 어시스트', topAssist.name, `${topAssist.assists}어시 · ${roundNos.length}라운드 합계`, 'var(--sky-soft)', 'var(--sky-ink)')}
       ${topKs ? card('최다 킬 점수 팀', '팀 ' + topKs.team_no, 'KS ' + score(topKs.ks), 'var(--t1s)', 'var(--t1)') : ''}
@@ -86,3 +86,11 @@ startPublic('matches', async (main) => {
   on(main, 'click', '[data-tab]', (_e, b) => { tab = Number(b.dataset.tab); draw(); });
   draw();
 });
+
+// MVP 카드 아래 한 줄: 디스코드 투표 결과가 있으면 표 수와 추첨 여부
+function mvpNote(ev) {
+  const r = ev.mvp_vote_result;
+  if (!r || r.picked !== ev.mvp_player_id) return '디스코드 투표';
+  const got = r.counts?.[r.picked] ?? 0;
+  return `디스코드 투표 ${r.votes}표 중 ${got}표${r.drawn ? ` · 공동 1위 ${r.tied?.length ?? 2}명 중 추첨` : ''}`;
+}

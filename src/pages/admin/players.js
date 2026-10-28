@@ -52,7 +52,7 @@ startAdmin('players', async (main) => {
           <span class="muted" style="font-size: 12px; font-weight: 600">치지직 · 유튜브 사진은 저장하면 바로 받아 오고, 12시간마다 새로 받아요. (유튜브는 YouTube API 키가 필요해요)</span>
         </fieldset>
         <label class="field">장점 한 줄 <input name="note" maxlength="60" value="${d.note}" placeholder="예: 운영 콜, 교전 판단"></label>
-        <label class="field">디스코드 아이디 (운영진만 봐요) <input name="discordId" value="${d.discordId}" placeholder="나중에 봇 연동 때 써요"></label>
+        <label class="field">디스코드 아이디 (운영진만 봐요) <input name="discordId" value="${d.discordId}" placeholder="봇의 /연결 을 승인하면 자동으로 채워져요"></label>
         <label class="radio"><input type="checkbox" name="active" ${d.active ? 'checked' : ''}> 참가 중 (끄면 선수 목록에서 숨겨요)</label>
         <div class="flex" style="border-top: 2px dashed var(--line); padding-top: 12px">
           ${!isNew ? html`<button type="button" class="btn sm sky" data-sync-one="${d.id}" ${state.syncing ? 'disabled' : ''}>이 선수만 동기화</button>` : ''}
