@@ -24,6 +24,8 @@ export type SyncResult = {
   rank_score?: number | null;
   rank_games?: number;
   message?: string;
+  nickname_missing?: boolean;                       // 저장된 UID · 닉네임 둘 다 이리에서 못 찾음 (닉네임이 바뀐 것 같아요)
+  nickname_changed?: { from: string; to: string };  // 같은 계정의 닉네임이 바뀌어서 따라 고쳤어요
 };
 
 export type SyncOptions = {
@@ -109,9 +111,22 @@ export type SyncDeps = {
   er: ErFetch;
   saveUid: (playerId: string, uid: string | null) => Promise<void>;
   saveStats: (playerId: string, stats: RankStats | null, error: string | null) => Promise<void>;
+  saveNickname?: (playerId: string, nickname: string) => Promise<void>;
 };
 
-// 선수 한 명: UID 확인 → 이번 시즌 랭크 기록 → 저장. 닉네임이 바뀌어 UID 가 달라졌으면 다시 찾아요.
+const sameNick = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+
+/** 통계 응답 속 닉네임 (그 UID 계정의 지금 닉네임) */
+export function pickNickname(body: any): string | null {
+  const raw = body?.userStats ?? body?.userStat ?? body?.data ?? null;
+  const list: any[] = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  const n = list.map((s) => s?.nickname).find((v) => typeof v === 'string' && v.trim());
+  return n ? String(n).trim() : null;
+}
+
+// 선수 한 명: UID 확인 → 이번 시즌 랭크 기록 → 저장.
+// 이리 UID 는 닉네임을 바꿀 때마다 새로 생겨요(공식 문서). 예전 UID 로 못 찾으면 저장된 닉네임으로 다시 찾고,
+// 그것도 없으면 닉네임이 바뀐 것이라 "기록 없음"으로 덮어쓰지 않고 예전 점수를 그대로 둬요.
 export async function syncPlayer(p: PlayerRow, seasonId: number, names: Map<number, string>, opts: SyncOptions, deps: SyncDeps): Promise<SyncResult> {
   const base = { player_id: p.id, name: p.display_name };
   let uid = p.er_uid;
@@ -132,7 +147,12 @@ export async function syncPlayer(p: PlayerRow, seasonId: number, names: Map<numb
 
   if (isNotFound(r) && !uidChanged) {
     const fresh = await lookupUid(deps.er, p.er_nickname);
-    if (fresh && fresh !== uid) {
+    if (!fresh) {
+      const msg = `이리에서 '${p.er_nickname}' 을(를) 찾지 못했어요. 닉네임이 바뀐 것 같아요. 선수 관리에서 새 닉네임으로 고쳐 주세요 (예전 점수는 그대로 둬요)`;
+      await deps.saveStats(p.id, null, msg);
+      return { ...base, ok: false, uid, nickname_missing: true, message: msg };
+    }
+    if (fresh !== uid) {
       uid = fresh;
       uidChanged = true;
       r = await deps.er(path(uid));
@@ -150,8 +170,18 @@ export async function syncPlayer(p: PlayerRow, seasonId: number, names: Map<numb
   // 404 = 이번 시즌 랭크 기록 없음
   const stats = code === 404 ? toRankStats(null, seasonId, names, opts) : toRankStats(r.body, seasonId, names, opts);
   await deps.saveStats(p.id, stats, null);
+
+  // 같은 UID 계정인데 닉네임이 다르면 따라 고쳐요 (CSV 자동 연결 · 다음 동기화가 새 닉네임을 쓰게)
+  let nicknameChanged: SyncResult['nickname_changed'];
+  const now = code === 200 ? pickNickname(r.body) : null;
+  if (now && !sameNick(now, p.er_nickname) && deps.saveNickname) {
+    await deps.saveNickname(p.id, now);
+    nicknameChanged = { from: p.er_nickname, to: now };
+  }
   return {
     ...base, ok: true, uid, uid_changed: uidChanged, rank_score: stats.rank_score, rank_games: stats.rank_games,
-    message: stats.rank_score === null ? '이번 시즌 솔로 랭크 기록 없음' : undefined
+    nickname_changed: nicknameChanged,
+    message: nicknameChanged ? `닉네임이 '${nicknameChanged.from}' → '${nicknameChanged.to}' 로 바뀌어서 고쳤어요`
+      : stats.rank_score === null ? '이번 시즌 솔로 랭크 기록 없음' : undefined
   };
 }

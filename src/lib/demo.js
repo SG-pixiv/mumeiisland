@@ -59,7 +59,9 @@ function build() {
   const player_rank_stats = roster.map(([n, , , , , most, rp, games, wins]) => ({
     player_id: T(n), season_id: 33, rank_score: rp, rank_games: games, rank_wins: wins,
     top_characters: rp === null ? [] : most.map((m, i) => ({ code: charCodes[m] || 0, name: m, games: Math.max(1, Math.round(games * (0.4 - i * 0.12))) })),
-    raw: null, synced_at: iso('2026-10-27T05:00:00+09:00'), sync_error: null
+    raw: null, synced_at: iso('2026-10-27T05:00:00+09:00'),
+    // 12번(공장야근)은 게임 닉네임을 factory_night → factory_night99 로 바꾼 상황이에요 (예시 CSV 에 새 닉네임으로 나와요)
+    sync_error: n === 12 ? "이리에서 'factory_night' 을(를) 찾지 못했어요. 닉네임이 바뀐 것 같아요. 선수 관리에서 새 닉네임으로 고쳐 주세요 (예전 점수는 그대로 둬요)" : null
   }));
   const player_private = roster.map(([n]) => ({ player_id: T(n), discord_id: null, memo: null }));
   const er_characters = Object.entries(charCodes).map(([name_ko, code]) => ({ code, name_ko, name_en: charEn[name_ko] || null }));

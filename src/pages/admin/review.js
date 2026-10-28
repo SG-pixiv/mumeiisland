@@ -1,6 +1,6 @@
 import { startAdmin } from '../../components/shell.js';
 import { html, mount, on, toast, errorText } from '../../lib/dom.js';
-import { select, insert, update, remove, rpc } from '../../lib/db.js';
+import { select, insert, update, remove, rpc, invokeFunction } from '../../lib/db.js';
 import { loadEvents, loadPlayers } from '../../lib/api.js';
 import { dateTimeShort, score, tierDot } from '../../lib/fmt.js';
 import { parseGameResult, teamScore, normName, sameGame } from '../../../supabase/functions/_shared/game-result.js';
@@ -13,6 +13,9 @@ const mostCommon = (list) => {
   return [...c.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 };
 const int = (v, min = 0) => Math.max(min, Math.round(Number(v) || 0));
+const sameNick = (a, b) => String(a ?? '').trim().toLowerCase() === String(b ?? '').trim().toLowerCase();
+// 이리 동기화가 "닉네임을 찾지 못했어요"라고 한 선수 (닉네임을 바꿨을 가능성이 커요)
+const nicknameLost = (p) => !!p.rank?.error && /찾지 못했어요/.test(p.rank.error);
 
 startAdmin('review', async (main) => {
   let events = [], players = [], rules = null, rounds = [];
@@ -132,6 +135,9 @@ startAdmin('review', async (main) => {
     if (new Set(nos).size !== nos.length) w.push(['pink', '같은 팀 번호가 두 번 이상 있어요. 팀 번호를 확인해 주세요.']);
     const unmatched = d.players.filter((p) => !p.playerId && inc.some((t) => t.key === p.teamKey));
     if (unmatched.length) w.push(['warn', `선수와 연결 안 된 닉네임이 ${unmatched.length}명 있어요 (${unmatched.slice(0, 3).map((p) => p.nickname).join(', ')}${unmatched.length > 3 ? ' …' : ''}). 연결하지 않으면 기록만 남고 선수 통계에는 안 들어가요.`]);
+    const linked = new Set(d.players.map((p) => p.playerId).filter(Boolean));
+    const lost = players.filter((p) => p.active && nicknameLost(p) && !linked.has(p.id));
+    if (unmatched.length && lost.length) w.push(['', `이리에서 닉네임을 못 찾는 선수가 있어요: ${lost.slice(0, 4).map((p) => `${p.name}(${p.erNickname})`).join(', ')}${lost.length > 4 ? ' …' : ''}. 닉네임을 바꾼 거라면 아래 "무명섬 선수"에서 연결하고 "닉네임도 바꾸기"를 눌러 주세요.`]);
     const deaths = inc.reduce((s, t) => s + t.deaths.length, 0);
     if (deaths) w.push(['', `처치자 불명 사망 ${deaths}건을 감점으로 넣어 뒀어요. 최종 2팀이 남은 뒤의 사망이면 감점을 빼고, 그 킬은 생존 팀 전체 킬에 더해 주세요.`]);
     d.parsed.warnings.forEach((x) => w.push(['warn', x]));
@@ -188,7 +194,12 @@ startAdmin('review', async (main) => {
             <td><b>${p.nickname}</b></td>
             <td><span class="flex" style="gap: 6px; flex-wrap: nowrap"><select class="input" data-player-link="${i}" aria-label="${p.nickname} 선수 연결" style="min-height: 36px; padding: 4px 8px; min-width: 190px; ${p.playerId ? '' : 'border-color: var(--t3)'}">
               <option value="">선수 아님 (기록만)</option>${opts.map((x) => html`<option value="${x.id}" ${x.id === p.playerId ? 'selected' : ''}>${x.name} · ${x.erNickname}</option>`)}
-            </select>${p.auto && p.playerId ? html`<span class="chip sky" style="font-size: 11px; padding: 0 8px">자동</span>` : ''}</span></td>
+            </select>${p.auto && p.playerId ? html`<span class="chip sky" style="font-size: 11px; padding: 0 8px">자동</span>` : ''}${(() => {
+              const pl = players.find((x) => x.id === p.playerId);
+              return pl && !sameNick(pl.erNickname, p.nickname)
+                ? html`<button type="button" class="btn sm ghost" data-renick="${i}" title="${pl.name} 선수의 이리 게임 닉네임을 '${p.nickname}'(으)로 바꿔요" style="padding: 2px 10px; white-space: nowrap">닉네임도 바꾸기</button>`
+                : '';
+            })()}</span></td>
             <td class="muted" style="font-weight: 600; white-space: nowrap">${t ? `팀 ${t.teamNo} · ${t.rank}위` : '-'}</td>
             <td style="font-family: var(--head); white-space: nowrap">${p.characterKo}${p.characterKo !== p.characterEn ? '' : html` <small class="muted" style="font-family: var(--body)">(영문)</small>`}</td>
             <td class="r">${p.kills}</td><td class="r">${p.assists}</td>
@@ -283,6 +294,24 @@ startAdmin('review', async (main) => {
   on(main, 'change', '[data-team-pen]', (_e, el) => { team(el, 'teamPen').penalties = int(el.value); draw(); });
   on(main, 'change', '[data-player-link]', (_e, el) => { const p = state.draft.players[Number(el.dataset.playerLink)]; p.playerId = el.value; p.auto = false; draw(); });
   on(main, 'change', '[data-round-no]', (_e, el) => { state.draft.roundNo = int(el.value, 1); draw(); });
+  // 닉네임을 바꾼 선수: 선수 관리의 이리 게임 닉네임도 CSV 닉네임으로 바꾸고, 바로 이리 동기화
+  on(main, 'click', '[data-renick]', async (_e, b) => {
+    const p = state.draft.players[Number(b.dataset.renick)];
+    const pl = players.find((x) => x.id === p.playerId);
+    if (!pl) return;
+    if (!confirm(`${pl.name} 선수의 이리 게임 닉네임을 '${pl.erNickname}' → '${p.nickname}'(으)로 바꿀까요?\n다음 판부터 자동으로 연결되고, 솔로 랭크 점수도 새 닉네임으로 받아요.`)) return;
+    try {
+      await update('players', { er_nickname: p.nickname, er_uid: null, updated_at: new Date().toISOString() }, { id: pl.id });
+      pl.erNickname = p.nickname;
+      draw();
+      toast(`${pl.name} 선수의 닉네임을 바꿨어요. 솔로 랭크 점수를 새로 받는 중…`);
+      const r = await invokeFunction('er-sync', { player_id: pl.id });
+      const res = r?.results?.[0];
+      toast(res?.ok ? `${pl.name}: 새 닉네임으로 점수를 받았어요${res.rank_score != null ? ` (${res.rank_score}점)` : ' (이번 시즌 기록 없음)'}` : `${pl.name}: ${res?.message || '동기화는 선수 관리에서 다시 해 주세요'}`, !res?.ok);
+      ({ list: players } = await loadPlayers({ includeInactive: true }));
+      draw();
+    } catch (err) { toast('닉네임을 바꾸지 못했어요: ' + errorText(err), true); }
+  });
   on(main, 'change', '[data-event]', async (_e, el) => {
     const d = state.draft;
     d.eventId = el.value;

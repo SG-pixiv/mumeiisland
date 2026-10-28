@@ -100,14 +100,18 @@ startAdmin('players', async (main) => {
     state.syncing = true; state.syncText = playerId ? '동기화 중이에요…' : '이리 API에서 데이터를 가져오는 중이에요. 선수 한 명에 1~2초씩 걸려요…'; draw();
     try {
       let offset = 0, ok = 0, bad = [], total = 0;
+      const renamed = [];
       do {
         const r = await invokeFunction('er-sync', playerId ? { player_id: playerId } : { offset, limit: 40 });
         total = r.total;
-        (r.results || []).forEach((x) => (x.ok ? ok++ : bad.push(`${x.name}: ${x.message}`)));
+        (r.results || []).forEach((x) => {
+          if (x.nickname_changed) renamed.push(`${x.name}: ${x.nickname_changed.from} → ${x.nickname_changed.to}`);
+          if (x.ok) ok++; else bad.push(`${x.name}: ${x.message}`);
+        });
         offset = r.next_offset;
         state.syncText = `${r.done} / ${total}명 동기화…`; draw();
       } while (offset !== null && offset !== undefined && !playerId);
-      state.syncText = `동기화 완료! 성공 ${ok}명${bad.length ? ` · 확인 필요 ${bad.length}명 (${bad.slice(0, 3).join(' / ')}${bad.length > 3 ? ' …' : ''})` : ''}`;
+      state.syncText = `동기화 완료! 성공 ${ok}명${renamed.length ? ` · 닉네임 바뀜 ${renamed.length}명 (${renamed.slice(0, 3).join(' / ')})` : ''}${bad.length ? ` · 확인 필요 ${bad.length}명 (${bad.slice(0, 3).join(' / ')}${bad.length > 3 ? ' …' : ''})` : ''}`;
       await reload();
     } catch (e) {
       state.syncText = '앗, 동기화하지 못했어요: ' + errorText(e);

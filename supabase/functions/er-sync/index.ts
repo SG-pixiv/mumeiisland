@@ -142,6 +142,9 @@ Deno.serve(async (req) => {
       saveUid: async (id: string, uid: string | null) => {
         await db.from('players').update({ er_uid: uid, updated_at: new Date().toISOString() }).eq('id', id);
       },
+      saveNickname: async (id: string, nickname: string) => {
+        await db.from('players').update({ er_nickname: nickname, updated_at: new Date().toISOString() }).eq('id', id);
+      },
       saveStats: async (id: string, stats: any, error: string | null) => {
         const now = new Date().toISOString();
         if (stats) await db.from('player_rank_stats').upsert({ player_id: id, ...stats, synced_at: now, sync_error: null });
