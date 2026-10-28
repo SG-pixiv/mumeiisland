@@ -77,6 +77,21 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       return { ok: true, text: `'${hit.display_name}' 선수로 연결 요청을 보냈어요! 운영진이 무명섬 관리자 화면에서 승인하면 연결돼요.${cur ? ` (지금은 '${cur.display_name}' 선수와 연결돼 있어요)` : ''}` };
     },
 
+    /** /연결해제: 내 연결을 풀고, 대기 중인 요청도 취소 */
+    async unlink({ discordId }) {
+      const p = await playerByDiscord(discordId);
+      const pending = must(await db.from('discord_link_requests').select('id').eq('discord_id', id(discordId)).eq('status', 'pending')) ?? [];
+      if (pending.length) must(await db.from('discord_link_requests').delete().eq('discord_id', id(discordId)).eq('status', 'pending'));
+      if (p) must(await db.from('player_private').update({ discord_id: null }).eq('discord_id', id(discordId)));
+      if (!p && !pending.length) return { ok: false, text: '연결된 선수가 없어요.' };
+      return {
+        ok: true,
+        text: p
+          ? `'${p.display_name}' 선수와의 연결을 풀었어요. 다시 연결하려면 \`/연결 게임닉네임\` 을 입력해 주세요. (이미 신청한 내전 · 투표 기록은 그대로예요)`
+          : '대기 중이던 연결 요청을 취소했어요.'
+      };
+    },
+
     /** /내정보 */
     async myInfo(discordId) {
       const p = await playerByDiscord(discordId);

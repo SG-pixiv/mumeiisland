@@ -9,6 +9,7 @@ export const commands = [
     options: [{ type: 3, name: '게임닉네임', description: '이터널 리턴 게임 닉네임', required: true, max_length: 40 }]
   },
   { name: '내정보', description: '연결된 무명섬 선수 정보를 보여 줘요' },
+  { name: '연결해제', description: '내 디스코드 계정과 무명섬 선수의 연결을 풀어요 (대기 중인 연결 요청도 취소)' },
   { name: '참가', description: '내전 참가 신청', options: [eventOption('비워 두면 모집 중인 가장 가까운 내전')] },
   { name: '참가취소', description: '내전 참가 취소', options: [eventOption('비워 두면 내가 신청한 가장 가까운 내전')] },
   { name: '내전공지', description: '참가 버튼이 달린 내전 공지를 이 채널에 올려요 (서버 관리자)', default_member_permissions: ADMIN, options: [eventOption()] },

@@ -86,6 +86,10 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
         const r = await service.requestLink({ discordId: i.user.id, discordName: displayName(i), nickname: i.options.getString('게임닉네임') });
         return i.editReply({ content: r.text });
       }
+      case '연결해제': {
+        await i.deferReply({ flags: EPHEMERAL });
+        return i.editReply({ content: (await service.unlink({ discordId: i.user.id })).text });
+      }
       case '내정보': {
         await i.deferReply({ flags: EPHEMERAL });
         return i.editReply({ content: (await service.myInfo(i.user.id)).text });

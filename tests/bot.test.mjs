@@ -117,6 +117,7 @@ test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아
     for (const o of c.options ?? []) { assert.match(o.name, ok); assert.ok(o.description.length <= 100); for (const s of o.options ?? []) assert.ok(s.description.length <= 100); }
   }
   assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), ['내전공지', 'mvp', '관리자키']);
+  assert.equal(commands.length, 8);
 });
 
 test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async () => {
@@ -134,6 +135,14 @@ test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async ()
   assert.match(info, /\*\*귀련\*\* · 1티어/);
   assert.match(info, /6,400점/);
   assert.match(s.last(await s.run({ cmd: '연결', opts: { 게임닉네임: '귀련' } })), /이미 '귀련' 선수와 연결/);
+  // /연결해제: 연결을 풀고, 다시 해제하면 "없어요"
+  assert.match(s.last(await s.run({ cmd: '연결해제' })), /'귀련' 선수와의 연결을 풀었어요/);
+  assert.equal(s.db.t.player_private.find((r) => r.player_id === 'P1').discord_id, null);
+  assert.match(s.last(await s.run({ cmd: '연결해제' })), /연결된 선수가 없어요/);
+  // 대기 중인 요청만 있으면 취소
+  await s.run({ cmd: '연결', opts: { 게임닉네임: '귀련' } });
+  assert.match(s.last(await s.run({ cmd: '연결해제' })), /요청을 취소했어요/);
+  assert.equal(s.db.t.discord_link_requests.filter((r) => r.status === 'pending').length, 0);
 });
 
 test('/내전공지 → 버튼으로 참가 · 취소, 인원 메시지가 바로 바뀌어요', async () => {
