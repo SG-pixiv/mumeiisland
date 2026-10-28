@@ -179,4 +179,34 @@ export function mvpResultMessage(event, result, nameOf) {
   };
 }
 
+/** 점수: 0.5 단위라 정수면 그대로, 아니면 소수 첫째 자리 */
+export const pts = (n) => { const v = Number(n) || 0; return Number.isInteger(v) ? String(v) : v.toFixed(1); };
+
+/**
+ * 라운드 결과 공지
+ *   teams: [{ team_no, team_rank, rs, ks, pen, total, team_kills }]
+ *   standings: [{ team_no, standing, total, rounds }]  (이 라운드까지 누적)
+ *   members: Map(team_no → [이름])   label: team_no → '팀 3' · '새벽사냥꾼 팀'
+ */
+export function roundResultMessage({ event, round, teams, standings, members, label, siteUrl, edited = false }) {
+  const rows = teams.slice().sort((a, b) => a.team_rank - b.team_rank).map((t) => {
+    const who = (members.get(t.team_no) || []).join(' · ');
+    const pen = Number(t.pen) ? ` − 감점 ${pts(t.pen)}` : '';
+    return `**${t.team_rank}위** ${label(t.team_no)} · **${pts(t.total)}점** (순위 ${pts(t.rs)} + 킬 ${pts(t.ks)}${pen}) · ${t.team_kills}킬${who ? `\n　${who}` : ''}`;
+  });
+  const top = standings.slice().sort((a, b) => a.standing - b.standing).slice(0, 8)
+    .map((s) => `${s.standing}. ${label(s.team_no)} — ${pts(s.total)}점 (${s.rounds}판)`);
+  return {
+    embeds: [{
+      title: `🏁 ${event.title} ${round.round_no}라운드 결과${edited ? ' (수정됨)' : ''}`,
+      url: siteUrl ? `${siteUrl}/match?id=${event.id}` : undefined,
+      description: rows.join('\n').slice(0, 3500),
+      color: PINK,
+      fields: top.length ? [{ name: `누적 순위 (${Math.max(...standings.map((s) => Number(s.rounds) || 0))}라운드까지)`, value: top.join('\n').slice(0, 1024) }] : [],
+      footer: { text: '순위 점수 + 킬 점수(1~2일차 0.5점) − 처치자 불명 감점 · 무명섬' }
+    }],
+    components: siteUrl ? [{ type: 1, components: [{ type: 2, style: 5, label: '내전 기록 보기', url: `${siteUrl}/match?id=${event.id}` }] }] : []
+  };
+}
+
 export const parseId = (customId, prefix) => (customId.startsWith(prefix + ':') ? customId.slice(prefix.length + 1) : null);

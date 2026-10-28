@@ -5,6 +5,8 @@ import { createService } from '../bot/src/service.js';
 import { createRouter, EPHEMERAL } from '../bot/src/router.js';
 import { tally, eventChoices, joinProblem, signupMessage, pickMvpEvent } from '../bot/src/logic.js';
 import { commands } from '../bot/src/commands.js';
+import { memoryStore, channelsOf } from '../bot/src/store.js';
+import { roundResultMessage, pts } from '../bot/src/logic.js';
 
 // ── 가짜 Supabase
 const KEYS = {
@@ -22,6 +24,7 @@ function fakeDb(seed) {
     eq(k, v) { this.f.push((r) => r[k] === v); return this; }
     in(k, list) { this.f.push((r) => list.includes(r[k])); return this; }
     order(k, o) { this.ord = [k, o?.ascending !== false]; return this; }
+    limit(n) { this.lim = n; return this; }
     maybeSingle() { this.one = 'maybe'; return this; }
     single() { this.one = 'single'; return this; }
     insert(v) { this.op = 'insert'; this.v = v; return this; }
@@ -50,6 +53,7 @@ function fakeDb(seed) {
       if (this.op === 'update') { out.forEach((r) => Object.assign(r, this.v)); return { data: null, error: null }; }
       if (this.op === 'delete') { t[this.name] = rows.filter((r) => !out.includes(r)); return { data: null, error: null }; }
       if (this.ord) { const [k, asc] = this.ord; out = out.slice().sort((a, b) => (a[k] > b[k] ? 1 : -1) * (asc ? 1 : -1)); }
+      if (this.lim) out = out.slice(0, this.lim);
       if (this.head) return { data: null, error: null, count: out.length };
       if (this.one) return out.length > 1 ? { data: null, error: { message: 'multiple rows' } } : { data: out[0] ? structuredClone(out[0]) : null, error: null };
       return { data: structuredClone(out), error: null };
@@ -83,6 +87,16 @@ const seed = () => ({
     { user_id: 'U-SG', discord_id: 'D-SG', discord_name: 'SG', role: 'owner', registered_via: '소유자 키 (처음 한 번)', created_at: iso(-300), last_seen_at: iso(-30), revoked_at: null },
     { user_id: 'U-A', discord_id: 'D-A', discord_name: '운석', role: 'admin', registered_via: '봇 명령어로 받은 키', created_at: iso(-200), last_seen_at: null, revoked_at: null }
   ],
+  rounds: [{ id: 'R1', event_id: 'E0', round_no: 1, status: 'confirmed', confirmed_at: iso(-7 * 24 + 1) }],
+  v_round_team_scores: [
+    { round_id: 'R2', team_no: 1, team_rank: 2, team_kills: 9, rs: 7, ks: 7.5, pen: 0, total: 14.5 },
+    { round_id: 'R2', team_no: 2, team_rank: 1, team_kills: 11, rs: 10, ks: 9, pen: 1, total: 18 }
+  ],
+  v_event_standings: [{ event_id: 'E0', team_no: 2, standing: 1, total: 30, rounds: 2 }, { event_id: 'E0', team_no: 1, standing: 2, total: 26.5, rounds: 2 }],
+  round_players: [
+    { round_id: 'R2', player_id: 'P2', csv_nickname: 'Lumi', team_no: 1 }, { round_id: 'R2', player_id: null, csv_nickname: 'guest99', team_no: 1 },
+    { round_id: 'R2', player_id: 'P3', csv_nickname: 'nadine', team_no: 2 }
+  ],
   admin_keys: [
     { id: 'K1', target_discord: 'd-a', used_at: null, revoked_at: null, expires_at: iso(10) },
     { id: 'K2', target_discord: 'd-x', used_at: null, revoked_at: null, expires_at: iso(10) },
@@ -91,26 +105,30 @@ const seed = () => ({
 });
 
 // ── 가짜 디스코드
-function setup(rng = () => 0.99, { dmFails = false } = {}) {
+function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
   const db = fakeDb(seed());
   const service = createService(db, { siteUrl: 'https://mumei.test', rng, now: () => NOW });
   const sent = [], edits = [], dms = [];
+  const store = memoryStore();
   let gone = new Set();
   const router = createRouter({
     service, guildId: 'G', siteUrl: 'https://mumei.test', log: { warn() {}, info() {} },
     sendMessage: async (channelId, payload) => { const m = { id: `M${sent.length + 1}`, channelId }; sent.push({ ...m, payload }); return m; },
     editMessage: async (channelId, id, payload) => { if (gone.has(id)) throw Object.assign(new Error('Unknown Message'), { code: 10008 }); edits.push({ channelId, id, payload }); },
-    sendDM: async (userId, content) => { if (dmFails) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 }); dms.push({ userId, content }); }
+    sendDM: async (userId, content) => { if (dmFails) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 }); dms.push({ userId, content }); },
+    canPost: async () => postable,
+    store
   });
   const run = async (o) => {
     const replies = [];
     const i = {
-      guildId: o.guild ?? 'G', channelId: 'C1', user: { id: o.user ?? 'D1', username: 'user' }, member: { displayName: o.nick ?? '디코닉' },
+      guildId: o.guild ?? 'G', channelId: o.channel ?? 'C1', user: { id: o.user ?? 'D1', username: 'user' }, member: { displayName: o.nick ?? '디코닉' },
       memberPermissions: { has: (bit) => !!o.admin && bit === 8n },
       commandName: o.cmd, customId: o.custom, values: o.values,
       options: {
         getString: (k) => o.opts?.[k] ?? null, getSubcommand: () => o.sub, getFocused: () => o.focus ?? '',
-        getUser: (k) => o.users?.[k] ?? null, getMember: (k) => (o.users?.[k] ? { displayName: o.users[k].nick } : null)
+        getUser: (k) => o.users?.[k] ?? null, getMember: (k) => (o.users?.[k] ? { displayName: o.users[k].nick } : null),
+        getChannel: (k) => o.channels?.[k] ?? null
       },
       isAutocomplete: () => o.kind === 'auto', isButton: () => o.kind === 'button', isStringSelectMenu: () => o.kind === 'select', isChatInputCommand: () => (o.kind ?? 'cmd') === 'cmd',
       deferReply: async (x) => { replies.push({ defer: x }); },
@@ -120,7 +138,7 @@ function setup(rng = () => 0.99, { dmFails = false } = {}) {
     return replies;
   };
   const last = (r) => r[r.length - 1]?.content ?? '';
-  return { db, service, router, run, last, sent, edits, gone, dms };
+  return { db, service, router, run, last, sent, edits, gone, dms, store };
 }
 
 test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아요', () => {
@@ -129,8 +147,8 @@ test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아
     assert.match(c.name, ok); assert.ok(c.description.length <= 100, c.name);
     for (const o of c.options ?? []) { assert.match(o.name, ok); assert.ok(o.description.length <= 100); for (const s of o.options ?? []) assert.ok(s.description.length <= 100); }
   }
-  assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), ['내전공지', 'mvp', '관리자키', '관리자목록', '관리자해제']);
-  assert.equal(commands.length, 10);
+  assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), ['내전공지', 'mvp', '채널설정', '관리자키', '관리자목록', '관리자해제']);
+  assert.equal(commands.length, 11);
 });
 
 test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async () => {
@@ -162,7 +180,7 @@ test('/내전공지 → 버튼으로 참가 · 취소, 인원 메시지가 바�
   const s = setup();
   s.db.t.player_private.push({ player_id: 'P1', discord_id: 'D1' });
   assert.match(s.last(await s.run({ cmd: '내전공지' })), /서버 관리자만/);
-  assert.match(s.last(await s.run({ cmd: '내전공지', admin: true })), /공지를 올렸어요/);
+  assert.match(s.last(await s.run({ cmd: '내전공지', admin: true })), /공지를 이 채널에 올렸어요/);
   assert.equal(s.db.t.events.find((e) => e.id === 'E1').status, 'open');                 // 예정 → 모집 중
   assert.equal(s.sent.length, 1);
   const btns = s.sent[0].payload.components[0].components;
@@ -193,7 +211,7 @@ test('/내전공지 → 버튼으로 참가 · 취소, 인원 메시지가 바�
 test('/mvp 시작 → 투표 → /mvp 마감: 최다 득표 MVP, 공동 1위는 추첨', async () => {
   const s = setup(() => 0.99);   // 추첨은 마지막 후보
   s.db.t.player_private.push({ player_id: 'P1', discord_id: 'D1' });
-  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true, opts: { 내전: 'E0' } })), /MVP 투표를 열었어요/);
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true, opts: { 내전: 'E0' } })), /MVP 투표를 이 채널에 열었어요/);
   const menu = s.sent[0].payload.components[0].components[0];
   assert.equal(menu.custom_id, 'mvp:E0');
   assert.deepEqual(menu.options.map((o) => o.label), ['루미', '나딘', '혜진']);
@@ -265,6 +283,61 @@ test('/관리자목록 · /관리자해제 (소유자만, 남은 키도 취소)'
   assert.equal(s.db.t.admin_keys.find((k) => k.id === 'K2').revoked_at, null);
   assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-SG', users: a })), /관리자가 아니에요/);
   assert.match(s.last(await s.run({ cmd: '관리자목록', user: 'D-SG' })), /관리자 1명 · 안 쓴 키 1개/);
+});
+
+test('/채널설정: 공지 채널로 올리기 · 명령어 채널 제한', async () => {
+  const s = setup();
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기' })), /서버 관리자만/);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기', admin: true })), /공지 · 알림 채널: 아직 없어요/);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } })), /<#C-ANN> 에 올라가요/);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '명령어', admin: true, channel: 'C-CMD' })), /<#C-CMD> 에서만/);   // 채널을 안 고르면 지금 채널
+  assert.deepEqual(channelsOf(s.store, 'G'), { announce: 'C-ANN', commands: 'C-CMD' });
+
+  // 참가자 명령어는 명령어 채널에서만, 관리자 명령어는 어디서나
+  assert.match(s.last(await s.run({ cmd: '내정보', channel: 'C1' })), /<#C-CMD> 채널에서 써 주세요/);
+  assert.match(s.last(await s.run({ cmd: '내정보', channel: 'C-CMD' })), /연결된 선수가 없어요/);
+  assert.match(s.last(await s.run({ cmd: '내전공지', admin: true, channel: 'C-CMD' })), /<#C-ANN>에 올렸어요/);
+  assert.equal(s.sent.at(-1).channelId, 'C-ANN');
+  assert.equal(s.db.t.bot_messages[0].channel_id, 'C-ANN');
+  await s.run({ cmd: 'mvp', sub: '시작', admin: true, channel: 'C-CMD', opts: { 내전: 'E0' } });
+  assert.equal(s.sent.at(-1).channelId, 'C-ANN');
+
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '명령어해제', admin: true })), /풀었어요/);
+  assert.match(s.last(await s.run({ cmd: '내정보', channel: 'C1' })), /연결된 선수가 없어요/);
+  const f = setup(undefined, { postable: false });
+  assert.match(f.last(await f.run({ cmd: '채널설정', sub: '공지', admin: true })), /글을 쓸 수 없어요/);
+  assert.deepEqual(channelsOf(f.store, 'G'), {});
+});
+
+test('라운드 결과 자동 공지: 처음엔 예전 판 건너뛰고, 확정하면 올리고, 다시 확정하면 (수정됨)', async () => {
+  const s = setup();
+  assert.equal(await s.router.announceResults(), 0);              // 처음: R1(예전 판)은 표시만
+  assert.deepEqual(Object.keys(s.store.get().announced), ['R1']);
+  s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1) });
+  assert.equal(await s.router.announceResults(), 0);              // 공지 채널이 없으면 안 올리고 표시만
+  assert.equal(s.sent.length, 0);
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channel: 'C-ANN' });
+  assert.equal(await s.router.announceResults(), 0);              // 채널을 정해도 예전 판이 한꺼번에 올라가지 않아요
+  s.db.t.rounds.find((r) => r.id === 'R2').confirmed_at = iso(-0.5);   // 확정 취소 → 다시 확정
+  assert.equal(await s.router.announceResults(), 1);
+  const e = s.sent.at(-1);
+  assert.equal(e.channelId, 'C-ANN');
+  const emb = e.payload.embeds[0];
+  assert.equal(emb.title, '🏁 10월 24일 내전 2라운드 결과 (수정됨)');
+  assert.match(emb.description, /^\*\*1위\*\* 팀 2 · \*\*18점\*\* \(순위 10 \+ 킬 9 − 감점 1\) · 11킬\n　나딘\n\*\*2위\*\* 팀 1 · \*\*14\.5점\*\*/);
+  assert.match(emb.description, /루미 · guest99/);
+  assert.equal(emb.fields[0].name, '누적 순위 (2라운드까지)');
+  assert.equal(emb.fields[0].value, '1. 팀 2 — 30점 (2판)\n2. 팀 1 — 26.5점 (2판)');
+  assert.equal(e.payload.components[0].components[0].url, 'https://mumei.test/match?id=E0');
+  assert.equal(await s.router.announceResults(), 0);              // 같은 판은 한 번만
+
+  // 드래프트 내전이면 팀장 이름으로
+  s.db.t.events.find((x) => x.id === 'E0').format = 'draft';
+  s.db.t.event_teams.push({ event_id: 'E0', player_id: 'P3', team_no: 2, slot_tier: 1 });
+  const r = await s.service.roundResult('R2');
+  assert.match(r.payload.embeds[0].description, /\*\*1위\*\* 나딘 팀/);
+  assert.equal(await s.service.roundResult('R-none'), null);
+  assert.deepEqual([pts(3), pts(2.5), pts('7')], ['3', '2.5', '7']);
 });
 
 test('답장은 나만 보이게, 다른 서버에서는 안 돼요, 자동완성 · 지워진 메시지 정리', async () => {

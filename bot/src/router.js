@@ -2,12 +2,21 @@
 // discord.js 에 묶이지 않게 메시지 보내기 · 고치기는 바깥(index.js)에서 넣어 줘요 → 가짜로 테스트할 수 있어요.
 
 import { parseId } from './logic.js';
+import { memoryStore, channelsOf, setChannels } from './store.js';
 
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
 const ADMINISTRATOR = 1n << 3n;         // 서버 관리자 권한
 const GONE = new Set([10003, 10008]);   // 채널 · 메시지가 지워졌어요
 
-export function createRouter({ service, guildId, siteUrl, sendMessage, editMessage, sendDM = async () => { throw new Error('DM 을 보낼 수 없어요'); }, log = console }) {
+// 명령어 채널을 정해 두면 이 명령어들은 그 채널에서만 받아요 (관리자 명령어는 어디서나)
+const MEMBER_COMMANDS = new Set(['연결', '연결해제', '내정보', '참가', '참가취소']);
+
+export function createRouter({
+  service, guildId, siteUrl, sendMessage, editMessage, log = console,
+  sendDM = async () => { throw new Error('DM 을 보낼 수 없어요'); },
+  canPost = async () => true,          // 봇이 그 채널에 글을 쓸 수 있는지 (index.js 가 권한을 봐요)
+  store = memoryStore()                // 채널 설정 · 이미 올린 결과 (bot/data/settings.json)
+}) {
   const isAdmin = (i) => !!i.memberPermissions?.has?.(ADMINISTRATOR);
   const displayName = (i) => i.member?.displayName || i.user?.globalName || i.user?.username || '';
   const eph = (content) => ({ content, flags: EPHEMERAL });
@@ -31,10 +40,14 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
     for (const m of await service.liveMessages()) await refresh(m.event_id, m.kind);
   }
 
-  /** 새 공지 · 투표를 이 채널에 올리고, 예전 메시지는 버튼을 떼요 */
-  async function post(i, eventId, kind, payload, old) {
-    const msg = await sendMessage(i.channelId, payload);
-    await service.saveMessage(eventId, kind, msg.channelId ?? i.channelId, msg.id);
+  /** 공지 · 투표 · 발표가 올라갈 채널: /채널설정 공지 로 정한 곳, 없으면 명령어를 친 채널 */
+  const announceChannel = (i) => channelsOf(store, i.guildId ?? guildId).announce || i.channelId;
+  const where = (channelId, i) => (channelId === i.channelId ? '이 채널' : `<#${channelId}>`);
+
+  /** 새 공지 · 투표를 공지 채널에 올리고, 예전 메시지는 버튼을 떼요 */
+  async function post(channelId, eventId, kind, payload, old) {
+    const msg = await sendMessage(channelId, payload);
+    await service.saveMessage(eventId, kind, msg.channelId ?? channelId, msg.id);
     if (old && old.message_id !== msg.id) {
       try { await editMessage(old.channel_id, old.message_id, { components: [] }); } catch { /* 예전 메시지가 없어도 괜찮아요 */ }
     }
@@ -58,6 +71,36 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
     '• 다른 사람에게 보여 주지 마세요.'
   ].join('\n');
   const userName = (i, opt) => i.options.getMember?.(opt)?.displayName || i.options.getUser(opt)?.globalName || i.options.getUser(opt)?.username || '그 사람';
+
+  /**
+   * 라운드 결과 자동 공지: 웹에서 확정한 판을 공지 채널에 올려요 (index.js 가 30초마다 불러요)
+   * 처음 켰을 때 이미 확정돼 있던 판은 올리지 않고, 확정 취소 후 다시 확정하면 "(수정됨)"으로 다시 올려요
+   */
+  async function announceResults() {
+    const rounds = await service.recentConfirmed();
+    const st = store.get();
+    const done = { ...(st.announced ?? {}) };
+    if (!st.resultsReady) {
+      for (const r of rounds) done[r.id] = r.confirmed_at;
+      store.update({ announced: done, resultsReady: true });
+      return 0;
+    }
+    const channel = channelsOf(store, guildId).announce;
+    let posted = 0;
+    for (const r of rounds.filter((x) => done[x.id] !== x.confirmed_at).sort((a, b) => Date.parse(a.confirmed_at) - Date.parse(b.confirmed_at))) {
+      if (channel) {
+        const res = await service.roundResult(r.id, { edited: !!done[r.id] });
+        if (res) {
+          try { await sendMessage(channel, res.payload); posted++; }
+          catch (e) { log.warn(`[결과 공지] ${res.event.title} ${r.round_no}라운드를 올리지 못했어요: ${e?.message ?? e}`); if (!GONE.has(e?.code)) return posted; }
+        }
+      }
+      done[r.id] = r.confirmed_at;   // 공지 채널이 없을 때도 표시해 둬요 (나중에 채널을 정해도 예전 판이 한꺼번에 올라가지 않게)
+    }
+    const keep = Object.fromEntries(Object.entries(done).sort((a, b) => String(b[1]).localeCompare(String(a[1]))).slice(0, 300));
+    store.update({ announced: keep });
+    return posted;
+  }
 
   async function handle(i) {
     if (guildId && i.guildId && i.guildId !== guildId) {
@@ -92,6 +135,10 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
 
     if (!i.isChatInputCommand()) return;
     const eventId = i.options.getString('내전') || null;
+    const cmdChannel = channelsOf(store, i.guildId ?? guildId).commands;
+    if (cmdChannel && i.channelId !== cmdChannel && MEMBER_COMMANDS.has(i.commandName)) {
+      return i.reply(eph(`명령어는 <#${cmdChannel}> 채널에서 써 주세요!`));
+    }
 
     switch (i.commandName) {
       case '연결': {
@@ -120,8 +167,9 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
         await i.deferReply({ flags: EPHEMERAL });
         const r = await service.announce({ eventId });
         if (!r.ok) return i.editReply({ content: r.text });
-        await post(i, r.event.id, 'signup', r.payload, r.old);
-        return i.editReply({ content: `**${r.event.title}** 공지를 올렸어요! 참가자가 버튼을 누를 때마다 인원이 바뀌어요.${r.old ? ' (예전 공지의 버튼은 뗐어요)' : ''}` });
+        const ch = announceChannel(i);
+        await post(ch, r.event.id, 'signup', r.payload, r.old);
+        return i.editReply({ content: `**${r.event.title}** 공지를 ${where(ch, i)}에 올렸어요! 참가자가 버튼을 누를 때마다 인원이 바뀌어요.${r.old ? ' (예전 공지의 버튼은 뗐어요)' : ''}` });
       }
       case 'mvp': {
         if (!(await adminOnly(i))) return;
@@ -129,16 +177,43 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
         if (i.options.getSubcommand() === '시작') {
           const r = await service.mvpStart({ eventId });
           if (!r.ok) return i.editReply({ content: r.text });
-          await post(i, r.event.id, 'mvp', r.payload, r.old);
-          return i.editReply({ content: `**${r.event.title}** MVP 투표를 열었어요!${r.reopened ? ' (마감했던 투표를 다시 열었어요. 이전 표는 그대로예요)' : ''} 마감은 \`/mvp 마감\`.` });
+          const ch = announceChannel(i);
+          await post(ch, r.event.id, 'mvp', r.payload, r.old);
+          return i.editReply({ content: `**${r.event.title}** MVP 투표를 ${where(ch, i)}에 열었어요!${r.reopened ? ' (마감했던 투표를 다시 열었어요. 이전 표는 그대로예요)' : ''} 마감은 \`/mvp 마감\`.` });
         }
         const r = await service.mvpClose({ eventId });
         if (!r.ok) return i.editReply({ content: r.text });
-        await sendMessage(i.channelId, r.announce);
+        const ch = announceChannel(i);
+        await sendMessage(ch, r.announce);
         if (r.old) {
           try { await editMessage(r.old.channel_id, r.old.message_id, r.payload); } catch { /* 투표 메시지가 지워졌어도 괜찮아요 */ }
         }
-        return i.editReply({ content: `발표했어요! MVP는 **${r.mvpName}**${r.result.drawn ? ' (공동 1위 추첨)' : ''}. 무명섬 내전 기록에도 저장됐어요.` });
+        return i.editReply({ content: `${where(ch, i)}에 발표했어요! MVP는 **${r.mvpName}**${r.result.drawn ? ' (공동 1위 추첨)' : ''}. 무명섬 내전 기록에도 저장됐어요.` });
+      }
+      case '채널설정': {
+        if (!(await adminOnly(i))) return;
+        const sub = i.options.getSubcommand();
+        const gid = i.guildId ?? guildId;
+        const cur = channelsOf(store, gid);
+        if (sub === '보기') {
+          return i.reply(eph([
+            `📢 공지 · 알림 채널: ${cur.announce ? `<#${cur.announce}>` : '아직 없어요 (명령어를 친 채널에 올라가요 · 라운드 결과 자동 공지는 꺼져 있어요)'}`,
+            `⌨️ 명령어 채널: ${cur.commands ? `<#${cur.commands}>` : '정하지 않았어요 (어디서나 쓸 수 있어요)'}`,
+            '바꾸기: `/채널설정 공지` · `/채널설정 명령어` (채널을 안 고르면 지금 채널)'
+          ].join('\n')));
+        }
+        if (sub === '명령어해제') {
+          setChannels(store, gid, { commands: null });
+          return i.reply(eph('명령어 채널 제한을 풀었어요. 이제 어느 채널에서나 명령어를 쓸 수 있어요.'));
+        }
+        const ch = i.options.getChannel?.('채널')?.id || i.channelId;
+        if (sub === '공지') {
+          if (!(await canPost(ch))) return i.reply(eph(`봇이 <#${ch}> 에 글을 쓸 수 없어요. 그 채널 설정 → 권한에서 무명섬 봇에게 "채널 보기 · 메시지 보내기 · 링크 첨부"를 허용해 주세요.`));
+          setChannels(store, gid, { announce: ch });
+          return i.reply(eph(`이제 내전 공지 · MVP 투표 · MVP 발표 · **라운드 결과**가 <#${ch}> 에 올라가요! 참가자는 이 채널에서 버튼만 누르면 돼서, 글쓰기는 막아 둬도 괜찮아요.`));
+        }
+        setChannels(store, gid, { commands: ch });
+        return i.reply(eph(`이제 /연결 · /연결해제 · /내정보 · /참가 · /참가취소 는 <#${ch}> 에서만 받아요. (관리자 명령어는 어디서나 돼요)`));
       }
       case '관리자키': {
         if (!(await staffOnly(i))) return;
@@ -174,5 +249,5 @@ export function createRouter({ service, guildId, siteUrl, sendMessage, editMessa
     }
   }
 
-  return { handle, refresh, refreshAll };
+  return { handle, refresh, refreshAll, announceResults };
 }

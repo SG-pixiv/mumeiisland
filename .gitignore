@@ -7,3 +7,4 @@ supabase/.temp
 supabase/.branches
 dist-uploader
 .cache
+bot/data

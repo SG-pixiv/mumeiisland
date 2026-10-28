@@ -21,6 +21,15 @@ export const commands = [
     ]
   },
   {
+    name: '채널설정', description: '공지 · 알림 채널과 명령어 채널 정하기 (서버 관리자)', default_member_permissions: ADMIN,
+    options: [
+      { type: 1, name: '공지', description: '내전 공지 · MVP 투표 · 발표 · 라운드 결과가 올라갈 채널', options: [{ type: 7, name: '채널', description: '비우면 지금 채널', required: false, channel_types: [0, 5] }] },
+      { type: 1, name: '명령어', description: '참가자 명령어(/연결 · /참가 …)를 받을 채널', options: [{ type: 7, name: '채널', description: '비우면 지금 채널', required: false, channel_types: [0, 5] }] },
+      { type: 1, name: '명령어해제', description: '명령어 채널 제한 풀기 (어디서나 쓸 수 있게)' },
+      { type: 1, name: '보기', description: '지금 정해진 채널 보기' }
+    ]
+  },
+  {
     name: '관리자키', description: '무명섬 웹 관리자 키 (서버 관리자 · 24시간 · 받은 사람 계정으로만 쓸 수 있어요)', default_member_permissions: ADMIN,
     options: [{ type: 6, name: '유저', description: '키를 줄 사람 (DM 으로 보내요). 비우면 나', required: false }]
   },

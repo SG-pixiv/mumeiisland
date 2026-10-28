@@ -1,10 +1,12 @@
 // 무명섬 디스코드 봇 시작: npm start  (bot/.env 필요, README 참고)
 
-import { Client, Events, GatewayIntentBits } from 'discord.js';
+import { Client, Events, GatewayIntentBits, PermissionFlagsBits } from 'discord.js';
+import { fileURLToPath } from 'node:url';
 import { createClient } from '@supabase/supabase-js';
 import { loadConfig } from './config.js';
 import { createService } from './service.js';
 import { createRouter, EPHEMERAL } from './router.js';
+import { fileStore, channelsOf } from './store.js';
 
 const cfg = loadConfig();
 const time = () => new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul' });
@@ -16,6 +18,7 @@ const log = {
 const db = createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const service = createService(db, { siteUrl: cfg.siteUrl });
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const store = fileStore(fileURLToPath(new URL('../data/settings.json', import.meta.url)));
 
 const channelOf = async (id) => {
   const ch = await client.channels.fetch(id);
@@ -33,7 +36,15 @@ const router = createRouter({
   },
   sendDM: async (userId, content) => {
     await (await client.users.fetch(userId)).send({ content });
-  }
+  },
+  canPost: async (channelId) => {
+    try {
+      const ch = await channelOf(channelId);
+      const p = ch.permissionsFor?.(client.user);
+      return !p || p.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]);
+    } catch { return false; }
+  },
+  store
 });
 
 client.once(Events.ClientReady, async (c) => {
@@ -57,6 +68,19 @@ client.once(Events.ClientReady, async (c) => {
   const tick = () => Promise.all([router.refreshAll(), beat()]).catch((e) => log.warn(`[갱신] ${e?.message ?? e}`));
   tick();
   setInterval(tick, cfg.refreshMinutes * 60_000);
+
+  // 라운드 결과 자동 공지: 웹에서 확정하면 30초 안에 공지 채널로
+  if (!channelsOf(store, cfg.guildId).announce) log.warn('공지 채널이 아직 없어요. 디스코드에서 /채널설정 공지 를 해 주세요 (라운드 결과 자동 공지가 꺼져 있어요)');
+  let busy = false;
+  const results = async () => {
+    if (busy) return;
+    busy = true;
+    try { const n = await router.announceResults(); if (n) log.info(`라운드 결과 ${n}개를 공지했어요`); }
+    catch (e) { log.warn(`[결과 공지] ${e?.message ?? e}`); }
+    finally { busy = false; }
+  };
+  results();
+  setInterval(results, 30_000);
 });
 
 client.on(Events.InteractionCreate, async (i) => {

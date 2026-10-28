@@ -408,7 +408,7 @@ startAdmin('review', async (main) => {
         p_teams: inc.map((t) => ({ team_no: t.teamNo, team_rank: t.rank, team_kills: t.teamKills, early_kills: t.earlyKills, penalties: t.penalties })),
         p_players: ps.map((p) => ({ player_id: p.playerId || null, csv_nickname: p.nickname, team_no: teamNoOf.get(p.teamKey), character_name: p.characterKo, kills: p.kills, assists: p.assists, extra: p.extra }))
       });
-      toast(`${eventTitle(d.eventId)} ${d.roundNo}라운드를 확정했어요! 공개 기록에 반영됐어요.`);
+      toast(`${eventTitle(d.eventId)} ${d.roundNo}라운드를 확정했어요! 공개 기록에 반영됐고, 디스코드 공지 채널에도 30초 안에 올라가요.`);
       const nextWaiting = rounds.find((r) => r.status !== 'confirmed' && r.id !== d.round.id);
       state.busy = false;
       await reload();

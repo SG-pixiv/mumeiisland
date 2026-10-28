@@ -3,7 +3,7 @@
 
 import {
   shortKst, pickSignupEvent, pickAnnounceEvent, pickMvpEvent, pickOpenVoteEvent, eventChoices,
-  joinProblem, leaveProblem, voteProblem, tally, signupMessage, mvpMessage, mvpResultMessage
+  joinProblem, leaveProblem, voteProblem, tally, signupMessage, mvpMessage, mvpResultMessage, roundResultMessage
 } from './logic.js';
 
 export function createService(db, { siteUrl = '', rng = Math.random, now = () => Date.now() } = {}) {
@@ -242,6 +242,36 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       if (!rows.length) return { ok: !!keys.length, text: `${targetName || '그 사람'} 님은 무명섬 관리자가 아니에요.${keyNote}` };
       for (const r of rows) must(await db.from('admins').update({ revoked_at: stamp }).eq('user_id', r.user_id));
       return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };
+    },
+
+    /** 최근 확정된 라운드 (결과 자동 공지용) */
+    async recentConfirmed(limit = 30) {
+      return must(await db.from('rounds').select('id, event_id, round_no, confirmed_at').eq('status', 'confirmed').order('confirmed_at', { ascending: false }).limit(limit)) ?? [];
+    },
+
+    /** 라운드 결과 공지 메시지 (확정된 판만) */
+    async roundResult(roundId, { edited = false } = {}) {
+      const round = must(await db.from('rounds').select('id, event_id, round_no, status, confirmed_at').eq('id', roundId).maybeSingle());
+      if (!round || round.status !== 'confirmed') return null;
+      const event = await eventById(round.event_id);
+      if (!event) return null;
+      const [teams, standings, rows, evTeams] = await Promise.all([
+        db.from('v_round_team_scores').select('team_no, team_rank, team_kills, rs, ks, pen, total').eq('round_id', roundId).then(must),
+        db.from('v_event_standings').select('team_no, standing, total, rounds').eq('event_id', event.id).then(must),
+        db.from('round_players').select('player_id, csv_nickname, team_no').eq('round_id', roundId).then(must),
+        db.from('event_teams').select('player_id, team_no, slot_tier').eq('event_id', event.id).then(must)
+      ]);
+      const names = await playersByIds([...new Set([...(rows ?? []), ...(evTeams ?? [])].map((p) => p.player_id).filter(Boolean))]);
+      const members = new Map();
+      for (const p of rows ?? []) {
+        const list = members.get(p.team_no) || [];
+        list.push(names.get(p.player_id)?.display_name || p.csv_nickname);
+        members.set(p.team_no, list);
+      }
+      // 드래프트 내전이면 팀장 이름으로 불러요 (예: 새벽사냥꾼 팀)
+      const captainOf = new Map((evTeams ?? []).filter((t) => t.slot_tier === 1).map((t) => [t.team_no, names.get(t.player_id)?.display_name]));
+      const label = (no) => (event.format === 'draft' && captainOf.get(no) ? `${captainOf.get(no)} 팀` : `팀 ${no}`);
+      return { event, round, payload: roundResultMessage({ event, round, teams: teams ?? [], standings: standings ?? [], members, label, siteUrl, edited }) };
     },
 
     /** 주기적으로 다시 그릴 메시지: 끝나지 않은 내전의 공지 · 투표 중인 MVP */

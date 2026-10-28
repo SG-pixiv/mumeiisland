@@ -16,6 +16,7 @@ const BOT_COMMANDS = [
     ['/내전공지 [내전]', '참가 버튼이 달린 공지를 그 채널에 올려요. "예정" 내전은 "참가 모집 중"으로 바뀌어요'],
     ['/mvp 시작 [내전]', '참가자끼리 MVP 투표 (자기 자신 X, 마감 전까지 바꾸기 O)'],
     ['/mvp 마감 [내전]', '최다 득표가 MVP, 공동 1위면 추첨 → 내전 기록에 저장'],
+    ['/채널설정 공지 · 명령어 · 명령어해제 · 보기', '공지 · 알림 채널(공지 · 투표 · 발표 · 라운드 결과)과 참가자 명령어 채널 정하기'],
     ['/관리자키 [@유저]', '그 사람 계정으로만 쓸 수 있는 24시간 키를 DM 으로 (비우면 나). 무명섬 관리자도 쓸 수 있어요'],
     ['/관리자목록', '지금 관리자와 안 쓴 키 개수 (무명섬 관리자도 쓸 수 있어요)']
   ]],
@@ -69,7 +70,7 @@ startAdmin('access', async (main, { isOwner }) => {
         <section class="card" style="border-color: var(--sky-ink)"><h2>디스코드 봇 명령어</h2>
           ${BOT_COMMANDS.map(([group, list]) => html`<div class="stack" style="gap: 6px"><b style="font-family: var(--head); font-size: 15px; color: var(--sky-ink)">${group}</b>
             ${list.map(([c, d]) => html`<div style="display: grid; gap: 2px; background: var(--sky-soft); border-radius: 16px; padding: 8px 12px"><code style="font-weight: 700">${c}</code><span style="font-size: 13px; font-weight: 600">${d}</span></div>`)}</div>`)}
-          <small class="muted" style="font-weight: 600">관리자 명령어는 디스코드 서버 관리자에게만 보여요. 봇 답장은 대부분 나만 보이게 와요. 설치 · 서버 옮기기는 GitHub 의 bot/README.md 를 봐 주세요.</small>
+          <small class="muted" style="font-weight: 600">결과 검토에서 라운드를 확정하면 30초 안에 공지 채널에 결과가 자동으로 올라가요. 관리자 명령어는 디스코드 서버 관리자에게만 보이고, 봇 답장은 대부분 나만 보이게 와요. 설치 · 채널 나누기 · 서버 옮기기는 GitHub 의 bot/README.md 를 봐 주세요.</small>
         </section>
         <section class="card"><h2>안전장치</h2><ul style="margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; font-weight: 600">
           <li>키는 1회용이고, 유효 시간이 지나면 못 써요</li><li>키 원문은 저장하지 않고 암호화한 값만 남겨요</li><li>키를 5번 틀리면 10분 동안 막혀요</li><li>관리자 기능을 쓸 때마다 권한을 다시 확인해서, 해제하면 바로 막혀요</li><li>소유자는 처음 한 번 소유자 키로 등록하고, 해제할 수 없어요</li></ul></section>
