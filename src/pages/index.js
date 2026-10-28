@@ -78,12 +78,12 @@ startPublic('home', async (main) => {
     <div class="card-head"><h2 id="rank-title">시즌 ${season} 내전 랭킹</h2><span class="muted" style="font-size: 13px; font-weight: 600">평균 합계점수 순 · ${minGames}판 이상</span></div>
     ${ranked.length
       ? html`<div class="table-wrap"><table class="data" style="min-width: 520px">
-          <thead><tr><th>#</th><th>선수</th><th class="r">내전 경기</th><th class="r">내전 승률</th><th class="r">평균 TK</th><th class="r">평균 딜량</th></tr></thead>
+          <thead><tr><th>#</th><th>선수</th><th class="r">내전 경기</th><th class="r">내전 승률</th><th class="r">평균 TK</th><th class="r">평균 점수</th></tr></thead>
           <tbody>${ranked.map((p, i) => html`<tr>
             <td><span class="medal sm ${medalClass(i + 1)}">${i + 1}</span></td>
             <td><a href="/player?id=${p.id}" class="flex" style="color: var(--ink); text-decoration: none; flex-wrap: nowrap">${tierChip(p.tier)}<b>${p.name}</b></a></td>
             <td class="r">${p.season.games}</td><td class="r">${pct(p.season.wins, p.season.games)}</td>
-            <td class="r">${num(p.season.avgTk, 1)}</td><td class="r">${num(p.season.avgDmg)}</td>
+            <td class="r">${num(p.season.avgTk, 1)}</td><td class="r">${score(p.season.avgTotal)}</td>
           </tr>`)}</tbody></table></div>`
       : html`<p class="empty">내전 기록이 쌓이면 랭킹이 생겨요!</p>`}
   </section>`;

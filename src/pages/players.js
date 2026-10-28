@@ -1,7 +1,7 @@
 import { startPublic } from '../components/shell.js';
 import { html, mount, on, safeUrl } from '../lib/dom.js';
 import { loadPlayers } from '../lib/api.js';
-import { avatar, tierChip, liveBadge, pct, num, chzzkUrl, STAR } from '../lib/fmt.js';
+import { avatar, tierChip, liveBadge, pct, num, score, chzzkUrl, STAR } from '../lib/fmt.js';
 
 startPublic('players', async (main) => {
   const { list } = await loadPlayers();
@@ -25,7 +25,7 @@ startPublic('players', async (main) => {
         <span><small>랭크 승률</small><b>${rankWin}</b></span>
         <span><small>내전 경기</small><b>${s.games}</b></span>
         <span><small>평균 TK</small><b>${num(s.avgTk, 1)}</b></span>
-        <span><small>평균 딜량</small><b>${s.avgDmg ? num(s.avgDmg / 1000, 1) + 'k' : '-'}</b></span>
+        <span><small>평균 점수</small><b>${s.games ? score(s.avgTotal) : '-'}</b></span>
       </div>
       ${p.chzzkId || p.youtubeUrl
         ? html`<div class="channels">

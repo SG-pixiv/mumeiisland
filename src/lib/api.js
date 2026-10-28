@@ -4,9 +4,9 @@ import { select } from './db.js';
 function combine(rows, sfx = '') {
   const games = rows.reduce((s, r) => s + Number(r['games' + sfx] || 0), 0);
   const wins = rows.reduce((s, r) => s + Number(r['wins' + sfx] || 0), 0);
-  if (!games) return { games: 0, wins: 0, avgRank: null, avgTk: null, avgDmg: null, avgTotal: null };
+  if (!games) return { games: 0, wins: 0, avgRank: null, avgTk: null, avgTotal: null };
   const w = (f) => rows.reduce((s, r) => s + Number(r[f + sfx] || 0) * Number(r['games' + sfx] || 0), 0) / games;
-  return { games, wins, avgRank: w('avg_rank'), avgTk: w('avg_tk'), avgDmg: w('avg_dmg'), avgTotal: w('avg_total') };
+  return { games, wins, avgRank: w('avg_rank'), avgTk: w('avg_tk'), avgTotal: w('avg_total') };
 }
 
 export function normPlayer(row, rank, statRows = [], season = null) {
@@ -70,12 +70,12 @@ export async function loadPlayerDetail(id) {
   const chars = new Map();
   for (const r of rounds) {
     const k = r.character_name || '알 수 없음';
-    const c = chars.get(k) || { name: k, games: 0, wins: 0, rankSum: 0, dmgSum: 0 };
-    c.games++; if (r.team_rank === 1) c.wins++; c.rankSum += r.team_rank; c.dmgSum += r.damage;
+    const c = chars.get(k) || { name: k, games: 0, wins: 0, rankSum: 0, totalSum: 0 };
+    c.games++; if (r.team_rank === 1) c.wins++; c.rankSum += r.team_rank; c.totalSum += Number(r.total) || 0;
     chars.set(k, c);
   }
   const characters = [...chars.values()].sort((a, b) => b.games - a.games)
-    .map((c) => ({ ...c, avgRank: c.rankSum / c.games, avgDmg: c.dmgSum / c.games }));
+    .map((c) => ({ ...c, avgRank: c.rankSum / c.games, avgTotal: c.totalSum / c.games }));
   return { player, season, rounds, characters, history };
 }
 

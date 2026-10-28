@@ -2,7 +2,7 @@ import { startAdmin } from '../../components/shell.js';
 import { html, mount, on, toast, errorText } from '../../lib/dom.js';
 import { rpc } from '../../lib/db.js';
 import { loadPlayers } from '../../lib/api.js';
-import { num, pct } from '../../lib/fmt.js';
+import { num, pct, score } from '../../lib/fmt.js';
 
 startAdmin('tiers', async (main) => {
   let players = [];
@@ -22,7 +22,7 @@ startAdmin('tiers', async (main) => {
         <span class="chip">1티어 <b class="num">${counts[0]}</b> · 2티어 <b class="num">${counts[1]}</b> · 3티어 <b class="num">${counts[2]}</b></span>
       </div>
       <section class="card"><div class="card-head"><h2>티어 정할 때 참고할 데이터</h2><span class="muted" style="font-size: 12px; font-weight: 600">솔로 랭크 점수는 이리 API · 내전 지표는 최근 30일</span></div>
-        ${players.length ? html`<div class="table-wrap"><table class="data" style="min-width: 840px"><thead><tr><th>선수</th><th>밸런스 티어</th><th class="r">솔로 랭크 점수</th><th class="r">내전 경기</th><th class="r">내전 승률</th><th class="r">평균 순위</th><th class="r">평균 TK</th><th class="r">평균 딜량</th></tr></thead><tbody>
+        ${players.length ? html`<div class="table-wrap"><table class="data" style="min-width: 840px"><thead><tr><th>선수</th><th>밸런스 티어</th><th class="r">솔로 랭크 점수</th><th class="r">내전 경기</th><th class="r">내전 승률</th><th class="r">평균 순위</th><th class="r">평균 TK</th><th class="r">평균 점수</th></tr></thead><tbody>
           ${players.map((p) => {
             const cur = changes.get(p.id) ?? p.tier;
             const changed = cur !== p.tier;
@@ -31,7 +31,7 @@ startAdmin('tiers', async (main) => {
               <td><span style="display: grid"><b>${p.name}</b><small style="font-weight: 700; color: ${changed ? 'var(--pink-ink)' : 'var(--muted)'}">${changed ? p.tier + '티어에서 변경' : p.rank?.score == null ? '솔로 랭크 기록 없음' : ''}</small></span></td>
               <td><span role="group" aria-label="${p.name} 밸런스 티어" class="flex" style="gap: 6px; flex-wrap: nowrap">${[1, 2, 3].map((t) => html`<button type="button" data-tier="${t}" data-player="${p.id}" aria-pressed="${cur === t}" aria-label="${t}티어" class="tier t${t}" style="width: 44px; height: 38px; font-size: 16px; cursor: pointer; border: 2px solid ${cur === t ? 'currentColor' : 'var(--line)'}; ${cur === t ? 'box-shadow: 0 3px 0 currentColor' : 'background: var(--card); color: var(--muted)'}">${t}</button>`)}</span></td>
               <td class="r" style="color: ${p.rank?.score == null ? 'var(--muted)' : 'var(--ink)'}">${p.rank?.score == null ? '기록 없음' : num(p.rank.score)}</td>
-              <td class="r">${s.games}</td><td class="r">${pct(s.wins, s.games)}</td><td class="r">${num(s.avgRank, 1)}</td><td class="r">${num(s.avgTk, 1)}</td><td class="r">${num(s.avgDmg)}</td>
+              <td class="r">${s.games}</td><td class="r">${pct(s.wins, s.games)}</td><td class="r">${num(s.avgRank, 1)}</td><td class="r">${num(s.avgTk, 1)}</td><td class="r">${s.games ? score(s.avgTotal) : '-'}</td>
             </tr>`;
           })}
         </tbody></table></div>` : html`<p class="empty">선수 관리에서 선수를 먼저 추가해 주세요.</p>`}

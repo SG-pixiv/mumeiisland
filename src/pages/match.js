@@ -1,7 +1,7 @@
 import { startPublic } from '../components/shell.js';
 import { html, mount, on, qs } from '../lib/dom.js';
 import { loadEventDetail } from '../lib/api.js';
-import { dateKo, FORMAT_LABEL, score, num, medalClass, tierDot } from '../lib/fmt.js';
+import { dateKo, FORMAT_LABEL, score, medalClass, tierDot } from '../lib/fmt.js';
 
 startPublic('matches', async (main) => {
   const id = qs('id');
@@ -29,14 +29,14 @@ startPublic('matches', async (main) => {
     const per = new Map();
     prounds.forEach((r) => {
       const k = r.player_id || r.csv_nickname;
-      const a = per.get(k) || { name: r.player_id ? byId.get(r.player_id)?.name || r.csv_nickname : r.csv_nickname, kills: 0, dmg: 0, games: 0 };
-      a.kills += r.kills; a.dmg += r.damage; a.games++;
+      const a = per.get(k) || { name: r.player_id ? byId.get(r.player_id)?.name || r.csv_nickname : r.csv_nickname, kills: 0, assists: 0, games: 0 };
+      a.kills += r.kills; a.assists += r.assists; a.games++;
       per.set(k, a);
     });
     const list = [...per.values()];
     if (!list.length) return '';
     const topKill = list.slice().sort((a, b) => b.kills - a.kills)[0];
-    const topDmg = list.slice().sort((a, b) => b.dmg / b.games - a.dmg / a.games)[0];
+    const topAssist = list.slice().sort((a, b) => b.assists - a.assists)[0];
     const topKs = standings.slice().sort((a, b) => b.ks - a.ks)[0];
     const mvp = ev.mvp_player_id ? byId.get(ev.mvp_player_id) : null;
     const card = (label, who, value, bg, fg) => html`<div style="display: flex; align-items: center; gap: 14px; background: ${bg}; border: 2px solid var(--ink); border-radius: 24px; padding: 18px; box-shadow: 0 5px 0 var(--ink)">
@@ -44,7 +44,7 @@ startPublic('matches', async (main) => {
     return html`<div class="grid" style="--min: 230px">
       ${mvp ? card('MVP', mvp.name, '디스코드 투표', 'var(--t3s)', 'var(--t3)') : ''}
       ${card('최다 킬', topKill.name, `${topKill.kills}킬 · ${roundNos.length}라운드 합계`, 'var(--soft)', 'var(--pink-ink)')}
-      ${card('최고 평균 딜량', topDmg.name, `${num(topDmg.dmg / topDmg.games)} / 판`, 'var(--sky-soft)', 'var(--sky-ink)')}
+      ${card('최다 어시스트', topAssist.name, `${topAssist.assists}어시 · ${roundNos.length}라운드 합계`, 'var(--sky-soft)', 'var(--sky-ink)')}
       ${topKs ? card('최다 킬 점수 팀', '팀 ' + topKs.team_no, 'KS ' + score(topKs.ks), 'var(--t1s)', 'var(--t1)') : ''}
     </div>`;
   };
@@ -52,10 +52,10 @@ startPublic('matches', async (main) => {
   const playersTable = () => {
     const rows = prounds.filter((r) => r.round_no === tab).sort((a, b) => a.team_rank - b.team_rank || a.team_no - b.team_no);
     return html`<section class="card"><div class="card-head"><h2>선수별 기록</h2><span class="muted" style="font-size: 12px; font-weight: 600">게임에서 저장한 결과 데이터로 자동 입력됐어요</span></div>
-      <div class="table-wrap"><table class="data pink" style="min-width: 660px"><thead><tr><th>선수</th><th>팀</th><th>실험체</th><th class="r">킬</th><th class="r">어시</th><th class="r">TK</th><th class="r">딜량</th></tr></thead><tbody>
+      <div class="table-wrap"><table class="data pink" style="min-width: 580px"><thead><tr><th>선수</th><th>팀</th><th>실험체</th><th class="r">킬</th><th class="r">어시</th><th class="r">TK</th></tr></thead><tbody>
         ${rows.map((r) => {
           const p = r.player_id ? byId.get(r.player_id) : null;
-          return html`<tr><td><span class="flex" style="flex-wrap: nowrap">${tierDot(p?.tier || 3)}<b>${p?.name || r.csv_nickname}</b></span></td><td class="muted" style="font-weight: 600">팀 ${r.team_no} · ${r.team_rank}위</td><td style="font-family: var(--head)">${r.character_name || '-'}</td><td class="r">${r.kills}</td><td class="r">${r.assists}</td><td class="r">${r.team_kills}</td><td class="r">${num(r.damage)}</td></tr>`;
+          return html`<tr><td><span class="flex" style="flex-wrap: nowrap">${tierDot(p?.tier || 3)}<b>${p?.name || r.csv_nickname}</b></span></td><td class="muted" style="font-weight: 600">팀 ${r.team_no} · ${r.team_rank}위</td><td style="font-family: var(--head)">${r.character_name || '-'}</td><td class="r">${r.kills}</td><td class="r">${r.assists}</td><td class="r">${r.team_kills}</td></tr>`;
         })}
       </tbody></table></div></section>`;
   };

@@ -39,15 +39,14 @@ startPublic('players', async (main) => {
       <div class="tile"><span class="label">내전 승률</span><span class="value">${pct(s.wins, s.games)}</span><span class="sub">우승 ${s.wins}번</span></div>
       <div class="tile"><span class="label">평균 순위</span><span class="value">${num(s.avgRank, 1)}</span><span class="sub">팀 순위 기준</span></div>
       <div class="tile"><span class="label">평균 TK</span><span class="value">${num(s.avgTk, 1)}</span><span class="sub">팀 킬</span></div>
-      <div class="tile"><span class="label">평균 딜량</span><span class="value">${num(s.avgDmg)}</span><span class="sub">플레이어 대상</span></div>
       <div class="tile"><span class="label">평균 합계점수</span><span class="value">${score(s.avgTotal)}</span><span class="sub">팀 라운드 점수</span></div>
     </div>`;
   };
 
   const maxGames = Math.max(1, ...characters.map((c) => c.games));
   const charTable = characters.length
-    ? html`<div class="table-wrap"><table class="data" style="min-width: 460px"><thead><tr><th>실험체</th><th>판수</th><th class="r">내전 승률</th><th class="r">평균 순위</th><th class="r">평균 딜량</th></tr></thead><tbody>
-        ${characters.map((c) => html`<tr><td style="font-family: var(--head); font-size: 16px">${c.name}</td><td><span class="flex" style="flex-wrap: nowrap"><b class="num" style="width: 24px">${c.games}</b><span aria-hidden="true" style="height: 12px; border-radius: 999px; background: var(--sky); border: 2px solid var(--ink); width: ${Math.max(16, Math.round((c.games / maxGames) * 130))}px"></span></span></td><td class="r">${pct(c.wins, c.games)}</td><td class="r">${num(c.avgRank, 1)}</td><td class="r">${num(c.avgDmg)}</td></tr>`)}
+    ? html`<div class="table-wrap"><table class="data" style="min-width: 460px"><thead><tr><th>실험체</th><th>판수</th><th class="r">내전 승률</th><th class="r">평균 순위</th><th class="r">평균 점수</th></tr></thead><tbody>
+        ${characters.map((c) => html`<tr><td style="font-family: var(--head); font-size: 16px">${c.name}</td><td><span class="flex" style="flex-wrap: nowrap"><b class="num" style="width: 24px">${c.games}</b><span aria-hidden="true" style="height: 12px; border-radius: 999px; background: var(--sky); border: 2px solid var(--ink); width: ${Math.max(16, Math.round((c.games / maxGames) * 130))}px"></span></span></td><td class="r">${pct(c.wins, c.games)}</td><td class="r">${num(c.avgRank, 1)}</td><td class="r">${score(c.avgTotal)}</td></tr>`)}
       </tbody></table></div>`
     : html`<p class="empty">아직 내전 기록이 없어요.</p>`;
 
@@ -56,7 +55,7 @@ startPublic('players', async (main) => {
     ? html`<ol style="list-style: none; margin: 0; padding: 0; display: grid; gap: 10px">${recentGames.map((g) => html`<li style="display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: 12px; align-items: center; background: var(--soft); border-radius: 20px; padding: 10px 14px">
         <span class="medal ${medalClass(g.team_rank)}" style="width: 48px; height: 48px; font-size: 17px">${g.team_rank}위</span>
         <span style="display: grid; min-width: 0"><span style="font-family: var(--head); font-size: 17px">${g.character_name || '실험체 미상'} <span class="muted" style="font-family: var(--body); font-weight: 600; font-size: 13px">· ${shortDate(g.played_at)} R${g.round_no}</span></span>
-        <span class="muted" style="font-size: 13px">킬 <b class="num" style="color: var(--ink)">${g.kills}</b> · 어시 <b class="num" style="color: var(--ink)">${g.assists}</b> · TK <b class="num" style="color: var(--ink)">${g.team_kills}</b> · 딜량 <b class="num" style="color: var(--ink)">${num(g.damage)}</b></span></span>
+        <span class="muted" style="font-size: 13px">킬 <b class="num" style="color: var(--ink)">${g.kills}</b> · 어시 <b class="num" style="color: var(--ink)">${g.assists}</b> · TK <b class="num" style="color: var(--ink)">${g.team_kills}</b></span></span>
         <span style="text-align: right; display: grid"><span class="num" style="font-size: 20px">${score(g.total)}점</span><span class="muted" style="font-size: 12px">순위 ${score(g.rs)} · 킬 ${score(g.ks)}</span></span>
       </li>`)}</ol>`
     : html`<p class="empty">첫 내전을 기다리는 중이에요!</p>`;
