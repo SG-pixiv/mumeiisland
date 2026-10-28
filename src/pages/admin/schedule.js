@@ -55,8 +55,8 @@ startAdmin('schedule', async (main) => {
           </div>
           ${f.id ? html`<div class="stack" style="gap: 8px"><span style="font-family: var(--head); font-size: 17px">참가자 <b class="num">${joined.length} / ${f.max}</b></span>
             <div class="flex" style="gap: 6px">${joined.map((p) => html`<span class="chip" style="padding: 1px 4px">${tierDot(p.tier)}${p.name}<button type="button" class="btn text" data-out="${p.id}" aria-label="${p.name} 빼기" style="min-height: 26px; padding: 0 6px; color: var(--pink-ink)">×</button></span>`)}</div>
-            ${joined.length < f.max && bench.length ? html`<div class="flex" style="gap: 6px; border-top: 2px dashed var(--line); padding-top: 10px"><small class="muted" style="font-weight: 700">추가할 수 있는 선수</small>${bench.map((p) => html`<button type="button" class="chip" data-in="${p.id}" style="cursor: pointer; border-style: dashed; border-color: var(--sky-ink)">+ ${p.name}</button>`)}</div>` : ''}
-            <small class="muted" style="font-weight: 600">디스코드 봇 참가 신청 연동은 나중에 붙여요.</small></div>` : html`<p class="muted" style="margin: 0; font-weight: 600">저장하면 참가자를 넣을 수 있어요.</p>`}
+            ${joined.length < f.max && bench.length ? html`<div class="flex" style="gap: 6px; border-top: 2px dashed var(--line); padding-top: 10px"><small class="muted" style="font-weight: 700">추가할 수 있는 선수</small><button type="button" class="chip sky" data-in-all style="cursor: pointer">+ 전체 추가 (${bench.length}명)</button>${bench.map((p) => html`<button type="button" class="chip" data-in="${p.id}" style="cursor: pointer; border-style: dashed; border-color: var(--sky-ink)">+ ${p.name}</button>`)}</div>` : ''}
+            <small class="muted" style="font-weight: 600">디스코드에서 공지 버튼이나 /참가 로 신청한 사람도 여기에 바로 들어와요.</small></div>` : html`<p class="muted" style="margin: 0; font-weight: 600">저장하면 참가자를 넣을 수 있어요.</p>`}
           <div class="flex" style="border-top: 2px dashed var(--line); padding-top: 14px">${f.id ? html`<button type="button" class="btn ghost danger" data-delete>삭제</button>` : ''}<span class="spacer"></span><button type="submit" class="btn pink" ${state.busy ? 'disabled' : ''}>저장</button></div>
         </form></section>` : html`<section class="card grow"><h2>내전을 골라 주세요</h2><p class="muted" style="margin: 0; font-weight: 600">왼쪽에서 고르거나 "새 내전 추가"를 눌러 주세요.</p></section>`}
       </div>`);
@@ -65,6 +65,14 @@ startAdmin('schedule', async (main) => {
   on(main, 'click', '[data-new]', () => { state.form = blank(); draw(); });
   on(main, 'click', '[data-pick]', (_e, b) => { state.form = toForm(events.find((e) => e.id === b.dataset.pick)); draw(); });
   on(main, 'click', '[data-in]', async (_e, b) => { try { await insert('event_participants', { event_id: state.form.id, player_id: b.dataset.in }); await reload(); draw(); } catch (e) { toast(errorText(e), true); } });
+  on(main, 'click', '[data-in-all]', async () => {
+    const joinedIds = new Set(parts.filter((p) => p.event_id === state.form.id).map((p) => p.player_id));
+    const bench = players.filter((p) => !joinedIds.has(p.id));
+    const total = joinedIds.size + bench.length;
+    if (!bench.length) return;
+    if (!confirm(total > state.form.max ? `${bench.length}명을 넣으면 ${total}명이 돼서 최대 인원(${state.form.max}명)을 넘어요. 그래도 다 넣을까요?` : `${bench.length}명을 모두 참가자로 넣을까요? (모두 ${total}명)`)) return;
+    try { await insert('event_participants', bench.map((p) => ({ event_id: state.form.id, player_id: p.id }))); await reload(); draw(); toast(`${bench.length}명을 넣었어요.`); } catch (e) { toast(errorText(e), true); }
+  });
   on(main, 'click', '[data-out]', async (_e, b) => { try { await remove('event_participants', { event_id: state.form.id, player_id: b.dataset.out }); await reload(); draw(); } catch (e) { toast(errorText(e), true); } });
   on(main, 'click', '[data-delete]', async () => {
     if (!confirm('이 내전을 삭제할까요? 연결된 라운드 기록도 같이 지워져요.')) return;

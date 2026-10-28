@@ -157,6 +157,7 @@ startAdmin('teams', async (main) => {
       <div class="flex" style="gap: 8px">
         <select class="input" data-add-select aria-label="추가할 선수" style="max-width: 280px"><option value="">참가자 추가…</option>${others.map((p) => html`<option value="${p.id}">${p.name} · ${p.tier}티어${p.rank?.score != null ? ` · ${num(p.rank.score)}점` : ''}</option>`)}</select>
         <button type="button" class="btn sm sky" data-add>추가</button>
+        <button type="button" class="btn sm ghost" data-add-all ${others.length && !state.busy ? '' : 'disabled'} title="쉬는 중(비활성)인 선수는 빼고 넣어요">활성 선수 전체 추가 (${others.length}명)</button>
         <span class="spacer"></span>
         <small class="muted" style="font-weight: 600">"이번 자리"는 이 내전에서만 바뀌고 선수 티어는 그대로예요.${lockedIds.size ? ' 팀에 들어간 선수는 드래프트를 되돌린 뒤 바꿀 수 있어요.' : ''}</small>
       </div>
@@ -316,6 +317,20 @@ startAdmin('teams', async (main) => {
     const id = main.querySelector('[data-add-select]')?.value;
     if (!id) return toast('추가할 선수를 골라 주세요.', true);
     await run(async () => { await insert('event_participants', { event_id: state.eventId, player_id: id }); }, `${nameOf(id)} 님을 넣었어요.`);
+    fitArrangement(); draw();
+  });
+  on(main, 'click', '[data-add-all]', async () => {
+    const e = ev();
+    const others = [...players.values()].filter((p) => p.active && !parts.some((x) => x.player_id === p.id));
+    if (!others.length) return toast('더 넣을 활성 선수가 없어요.');
+    const total = parts.length + others.length;
+    const msg = total > e.max_players
+      ? `${others.length}명을 넣으면 ${total}명이 돼서 최대 인원(${e.max_players}명)을 넘어요. 그래도 다 넣을까요?`
+      : `활성 선수 ${others.length}명을 모두 참가자로 넣을까요? (모두 ${total}명)`;
+    if (!confirm(msg)) return;
+    await run(async () => {
+      await insert('event_participants', others.map((p) => ({ event_id: state.eventId, player_id: p.id })));
+    }, `${others.length}명을 넣었어요. 이제 ${total}명이에요.`);
     fitArrangement(); draw();
   });
   on(main, 'click', '[data-out]', async (_e, b) => {
