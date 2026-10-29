@@ -34,6 +34,9 @@ const router = createRouter({
   editMessage: async (channelId, messageId, payload) => {
     await (await channelOf(channelId)).messages.edit(messageId, payload);
   },
+  deleteMessage: async (channelId, messageId) => {   // 봇이 올린 메시지라 따로 권한이 필요 없어요
+    await (await channelOf(channelId)).messages.delete(messageId);
+  },
   sendDM: async (userId, content) => {
     await (await client.users.fetch(userId)).send({ content });
   },
@@ -69,7 +72,7 @@ client.once(Events.ClientReady, async (c) => {
   tick();
   setInterval(tick, cfg.refreshMinutes * 60_000);
 
-  // 30초마다: 라운드 결과 자동 공지(웹에서 확정하면) · 참가 공지 자동 게시
+  // 30초마다: 라운드 결과 자동 공지(웹에서 확정하면) · 참가 공지 자동 게시 · 지운 내전의 메시지 정리
   if (!channelsOf(store, cfg.guildId).announce) log.warn('공지 채널이 아직 없어요. 디스코드에서 /채널설정 공지 를 해 주세요 (참가 공지 · 라운드 결과 자동 게시가 꺼져 있어요)');
   let busy = false;
   const results = async () => {
@@ -80,6 +83,9 @@ client.once(Events.ClientReady, async (c) => {
     // 참가 공지 자동 게시: 모집 중이 되면 바로 · 시작 24시간 전에 한 번 더
     try { const n = await router.autoAnnounce(); if (n) log.info(`참가 공지 ${n}개를 자동으로 올렸어요`); }
     catch (e) { log.warn(`[자동 공지] ${e?.message ?? e}`); }
+    // 웹에서 지운 내전의 디스코드 메시지도 지우기
+    try { const n = await router.cleanupDeleted(); if (n) log.info(`지운 내전의 디스코드 메시지 ${n}개를 지웠어요`); }
+    catch (e) { log.warn(`[메시지 정리] ${e?.message ?? e}`); }
     finally { busy = false; }
   };
   results();

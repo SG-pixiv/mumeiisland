@@ -128,10 +128,16 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
   const store = memoryStore();
   let gone = new Set();
   let failing = false;
+  const deleted = [];
+  const deleteFails = {};
   const router = createRouter({
     service, guildId: 'G', siteUrl: 'https://mumei.test', log: { warn() {}, info() {} },
     sendMessage: async (channelId, payload) => { if (failing) throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); const m = { id: `M${sent.length + 1}`, channelId }; sent.push({ ...m, payload }); return m; },
     editMessage: async (channelId, id, payload) => { if (gone.has(id)) throw Object.assign(new Error('Unknown Message'), { code: 10008 }); edits.push({ channelId, id, payload }); },
+    deleteMessage: async (channelId, id) => {
+      if (deleteFails[id]) throw Object.assign(new Error('delete failed'), { code: deleteFails[id] });
+      deleted.push({ channelId, id });
+    },
     sendDM: async (userId, content) => { if (dmFails) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 }); dms.push({ userId, content }); },
     canPost: async () => postable,
     store,
@@ -158,7 +164,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
     return replies;
   };
   const last = (r) => r[r.length - 1]?.content ?? '';
-  return { db, service, router, run, last, sent, edits, gone, dms, store, failSend: (v) => { failing = v; } };
+  return { db, service, router, run, last, sent, edits, gone, dms, store, deleted, deleteFails, failSend: (v) => { failing = v; } };
 }
 
 test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아요', () => {
@@ -534,4 +540,58 @@ test('introDefaults · introMessage: 명령어 채널이 없으면 "아무 채�
   assert.ok(introDefaults().body.length <= 4000);
   const m = introMessage({ title: '', body: 'x', siteUrl: '' });
   assert.deepEqual([m.embeds[0].title, m.embeds[0].image, m.components.length], ['무명섬', undefined, 0]);
+});
+
+test('cleanupDeleted: 웹에서 내전을 지우면 그 내전의 디스코드 메시지도 지워요', async () => {
+  const s = setup();
+  const dropEvent = (id) => {   // 웹에서 삭제 = events 행 삭제 + bot_messages 가 같이 지워짐 (on delete cascade)
+    s.db.t.events = s.db.t.events.filter((e) => e.id !== id);
+    s.db.t.bot_messages = s.db.t.bot_messages.filter((m) => m.event_id !== id);
+  };
+  // 배포 전부터 DB 에 있던 공지 기록 → 처음 정리 때 기억해 둬요 (그 전에 다른 메시지를 먼저 기억했어도)
+  s.db.t.bot_messages.push({ event_id: 'E0', kind: 'signup', channel_id: 'C-OLD', message_id: 'OLD1', created_at: iso(-200) });
+  s.store.update({ posts: [{ e: 'E9', k: 'result', c: 'C-X', m: 'NEW0', t: iso(-1) }] });
+  assert.equal(await s.router.cleanupDeleted(), 1, '이미 지워진 내전 E9 의 메시지는 바로 지워요');
+  assert.deepEqual(s.deleted.map((d) => d.id), ['NEW0']);
+  assert.deepEqual(s.store.get().posts.map((p) => p.m), ['OLD1']);
+  s.deleted.length = 0;
+
+  // E1: 자동 공지 + /내전공지 (예전 공지 포함 두 개)
+  s.db.t.events.find((e) => e.id === 'E1').status = 'open';
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  await s.router.autoAnnounce();
+  await s.run({ cmd: '내전공지', admin: true, opts: { 내전: 'E1' } });
+  assert.deepEqual(s.store.get().posts.filter((p) => p.e === 'E1').map((p) => [p.k, p.c]), [['signup', 'C-ANN'], ['signup', 'C-ANN']]);
+  assert.equal(await s.router.cleanupDeleted(), 0, '내전이 있으면 안 지워요');
+  assert.equal(s.deleted.length, 0);
+
+  // E1 삭제 → 두 메시지 다 지워요, E0 은 그대로
+  dropEvent('E1');
+  assert.equal(await s.router.cleanupDeleted(), 2);
+  assert.deepEqual(s.deleted.map((d) => d.id).sort(), ['M1', 'M2']);
+  assert.deepEqual(s.store.get().posts.map((p) => p.m), ['OLD1']);
+  assert.equal(await s.router.cleanupDeleted(), 0, '두 번 지우지 않아요');
+
+  // E0 삭제: 예전 테스트 서버처럼 봇이 못 들어가는 채널이면 잊어요
+  s.deleteFails.OLD1 = 50001;
+  dropEvent('E0');
+  assert.equal(await s.router.cleanupDeleted(), 0);
+  assert.equal(s.store.get().posts.length, 0);
+});
+
+test('cleanupDeleted: 잠깐 실패하면 다시 (5번까지), 라운드 결과 · MVP 발표도 지워요', async () => {
+  const s = setup();
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  // 라운드 결과 공지 (E0 의 R2): 처음 한 번은 표시만, 그다음 새 확정부터 올라가요
+  await s.router.announceResults();
+  s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1) });
+  assert.equal(await s.router.announceResults(), 1);
+  assert.deepEqual(s.store.get().posts.map((p) => [p.e, p.k]), [['E0', 'result']]);
+  const id = s.store.get().posts[0].m;
+  s.deleteFails[id] = 500;
+  s.db.t.events = s.db.t.events.filter((e) => e.id !== 'E0');
+  for (let n = 1; n <= 4; n++) { await s.router.cleanupDeleted(); assert.equal(s.store.get().posts[0].n, n); }
+  delete s.deleteFails[id];
+  assert.equal(await s.router.cleanupDeleted(), 1);
+  assert.equal(s.store.get().posts.length, 0);
 });

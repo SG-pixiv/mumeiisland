@@ -76,7 +76,7 @@ startAdmin('schedule', async (main) => {
   });
   on(main, 'click', '[data-out]', async (_e, b) => { try { await remove('event_participants', { event_id: state.form.id, player_id: b.dataset.out }); await reload(); draw(); } catch (e) { toast(errorText(e), true); } });
   on(main, 'click', '[data-delete]', async () => {
-    if (!confirm('이 내전을 삭제할까요? 연결된 라운드 기록도 같이 지워져요.')) return;
+    if (!confirm('이 내전을 삭제할까요? 연결된 라운드 기록도 같이 지워지고, 디스코드에 올라간 이 내전의 공지 · 투표 · 결과 메시지도 1분 안에 지워져요.')) return;
     try { await remove('events', { id: state.form.id }); state.form = null; await reload(); draw(); toast('삭제했어요.'); } catch (e) { toast(errorText(e), true); }
   });
   on(main, 'submit', '[data-form]', async (e, form) => {

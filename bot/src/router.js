@@ -7,12 +7,15 @@ import { memoryStore, channelsOf, setChannels } from './store.js';
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
 const ADMINISTRATOR = 1n << 3n;         // 서버 관리자 권한
 const GONE = new Set([10003, 10008]);   // 채널 · 메시지가 지워졌어요
+const NO_ACCESS = new Set([50001]);     // 봇이 그 채널에 못 들어가요 (예: 예전 테스트 서버) → 지울 수 없으니 잊어요
+const KEEP_POSTS = 1000;                // 기억해 둘 메시지 수 (오래된 것부터 잊어요)
 
 // 명령어 채널을 정해 두면 이 명령어들은 그 채널에서만 받아요 (관리자 명령어는 어디서나)
 const MEMBER_COMMANDS = new Set(['연결', '연결해제', '내정보', '참가', '참가취소']);
 
 export function createRouter({
   service, guildId, siteUrl, sendMessage, editMessage, log = console,
+  deleteMessage = async () => { throw new Error('메시지를 지울 수 없어요'); },
   sendDM = async () => { throw new Error('DM 을 보낼 수 없어요'); },
   canPost = async () => true,          // 봇이 그 채널에 글을 쓸 수 있는지 (index.js 가 권한을 봐요)
   store = memoryStore(),               // 채널 설정 · 이미 올린 결과 (bot/data/settings.json)
@@ -46,9 +49,21 @@ export function createRouter({
   const announceChannel = (i) => channelsOf(store, i.guildId ?? guildId).announce || i.channelId;
   const where = (channelId, i) => (channelId === i.channelId ? '이 채널' : `<#${channelId}>`);
 
+  /**
+   * 내전마다 봇이 올린 메시지를 기억해요 (bot/data/settings.json 의 posts)
+   * 웹에서 내전을 지우면 cleanupDeleted() 가 이 목록으로 디스코드 메시지도 지워요
+   */
+  function remember(eventId, kind, channelId, messageId) {
+    if (!eventId || !messageId) return;
+    const posts = (store.get().posts ?? []).filter((p) => p.m !== messageId);
+    posts.push({ e: eventId, k: kind, c: channelId, m: messageId, t: new Date(now()).toISOString() });
+    store.update({ posts: posts.slice(-KEEP_POSTS) });
+  }
+
   /** 새 공지 · 투표를 공지 채널에 올리고, 예전 메시지는 버튼을 떼요 */
   async function post(channelId, eventId, kind, payload, old) {
     const msg = await sendMessage(channelId, payload);
+    remember(eventId, kind, msg.channelId ?? channelId, msg.id);
     await service.saveMessage(eventId, kind, msg.channelId ?? channelId, msg.id);
     if (old && old.message_id !== msg.id) {
       try { await editMessage(old.channel_id, old.message_id, { components: [] }); } catch { /* 예전 메시지가 없어도 괜찮아요 */ }
@@ -88,7 +103,7 @@ export function createRouter({
       if (channel) {
         const res = await service.roundResult(r.id, { edited: !!done[r.id] });
         if (res) {
-          try { await sendMessage(channel, res.payload); posted++; }
+          try { const m = await sendMessage(channel, res.payload); remember(res.event.id, 'result', m?.channelId ?? channel, m?.id); posted++; }
           catch (e) { log.warn(`[결과 공지] ${res.event.title} ${r.round_no}라운드를 올리지 못했어요: ${e?.message ?? e}`); if (!GONE.has(e?.code)) return posted; }
         }
       }
@@ -200,7 +215,8 @@ export function createRouter({
         const r = await service.mvpClose({ eventId });
         if (!r.ok) return i.editReply({ content: r.text });
         const ch = announceChannel(i);
-        await sendMessage(ch, r.announce);
+        const shown = await sendMessage(ch, r.announce);
+        remember(r.event.id, 'mvp-result', shown?.channelId ?? ch, shown?.id);
         if (r.old) {
           try { await editMessage(r.old.channel_id, r.old.message_id, r.payload); } catch { /* 투표 메시지가 지워졌어도 괜찮아요 */ }
         }
@@ -316,5 +332,51 @@ export function createRouter({
     }
   }
 
-  return { handle, refresh, refreshAll, announceResults, autoAnnounce };
+  /**
+   * 웹에서 지운 내전의 디스코드 메시지 지우기 (30초마다)
+   * 참가 공지(하루 전 공지 포함) · MVP 투표 · MVP 발표 · 라운드 결과
+   * DB 목록에 없을 때 그 내전을 한 번 더 찾아보고, 정말 없을 때만 지워요
+   */
+  let cleanBusy = false;
+  async function cleanupDeleted() {
+    if (cleanBusy) return 0;
+    cleanBusy = true;
+    try {
+      if (!store.get().postsSeeded) {   // 처음 한 번: 이 기능 전에 올린 참가 공지 · 투표 메시지(DB 기록)도 기억
+        const known = new Set((store.get().posts ?? []).map((p) => p.m));
+        const old = (await service.trackedMessages()).filter((r) => !known.has(r.message_id))
+          .map((r) => ({ e: r.event_id, k: r.kind, c: r.channel_id, m: r.message_id, t: r.created_at }));
+        store.update({ posts: [...old, ...(store.get().posts ?? [])].slice(-KEEP_POSTS), postsSeeded: true });
+      }
+      const posts = store.get().posts ?? [];
+      if (!posts.length) return 0;
+      const alive = new Set(await service.eventIds());
+      const missing = [...new Set(posts.filter((p) => !alive.has(p.e)).map((p) => p.e))];
+      if (!missing.length) return 0;
+      const forget = new Set();
+      let removed = 0;
+      for (const eventId of missing) {
+        if (await service.eventById(eventId)) continue;
+        for (const p of posts.filter((x) => x.e === eventId)) {
+          try {
+            await deleteMessage(p.c, p.m);
+            removed++;
+            forget.add(p.m);
+          } catch (e) {
+            if (GONE.has(e?.code) || NO_ACCESS.has(e?.code)) { forget.add(p.m); continue; }
+            p.n = (p.n ?? 0) + 1;          // 잠깐 문제면 다음에 다시 (5번까지)
+            if (p.n >= 5) forget.add(p.m);
+            log.warn(`[메시지 정리] 지운 내전의 메시지를 지우지 못했어요 (${p.n}번째): ${e?.message ?? e}`);
+          }
+        }
+      }
+      // 그동안 새로 올린 메시지도 있을 수 있어서 지금 목록에서 뺄 것만 빼요 (다시 시도 횟수는 같은 객체라 그대로 남아요)
+      store.update({ posts: (store.get().posts ?? []).filter((p) => !forget.has(p.m)) });
+      return removed;
+    } finally {
+      cleanBusy = false;
+    }
+  }
+
+  return { handle, refresh, refreshAll, announceResults, autoAnnounce, cleanupDeleted };
 }

@@ -280,6 +280,10 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };
     },
 
+    /** 메시지 정리용: 지금 있는 내전 id 들 · DB 에 기록된 공지 · 투표 메시지 */
+    async eventIds() { return (must(await db.from('events').select('id')) ?? []).map((e) => e.id); },
+    async trackedMessages() { return must(await db.from('bot_messages').select('event_id, kind, channel_id, message_id, created_at')) ?? []; },
+
     /** 참가 공지 자동 게시용: 아직 안 끝난 · 시작 전 내전과 마지막 참가 공지 시각 */
     async autoAnnounceState() {
       const events = (await allEvents()).filter((e) => e.status !== 'done' && Date.parse(e.starts_at) > now());
