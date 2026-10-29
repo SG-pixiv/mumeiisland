@@ -280,6 +280,14 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };
     },
 
+    /** 참가 공지 자동 게시용: 아직 안 끝난 · 시작 전 내전과 마지막 참가 공지 시각 */
+    async autoAnnounceState() {
+      const events = (await allEvents()).filter((e) => e.status !== 'done' && Date.parse(e.starts_at) > now());
+      if (!events.length) return { events, posted: new Map() };
+      const rows = must(await db.from('bot_messages').select('event_id, created_at').eq('kind', 'signup').in('event_id', events.map((e) => e.id))) ?? [];
+      return { events, posted: new Map(rows.map((r) => [r.event_id, r.created_at])) };
+    },
+
     /** 최근 확정된 라운드 (결과 자동 공지용) */
     async recentConfirmed(limit = 30) {
       return must(await db.from('rounds').select('id, event_id, round_no, confirmed_at').eq('status', 'confirmed').order('confirmed_at', { ascending: false }).limit(limit)) ?? [];

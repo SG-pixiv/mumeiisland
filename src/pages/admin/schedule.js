@@ -47,6 +47,7 @@ startAdmin('schedule', async (main) => {
             <label class="field">최대 인원 <input type="number" name="max" min="3" max="24" step="3" value="${f.max}"></label>
             <label class="field">상태 <select name="status">${Object.entries(STATUS_LABEL).map(([v, l]) => html`<option value="${v}" ${f.status === v ? 'selected' : ''}>${l}</option>`)}</select></label>
           </div>
+          <small class="muted" style="font-weight: 600">디스코드 자동 공지: <b>참가 모집 중</b>으로 저장하면 바로, 시작 24시간 전에 한 번 더 참가 공지가 올라가요 (확정 내전은 24시간 전에만 · 예정은 안 올라가요). 시작이 24시간도 안 남았으면 한 번만 올라가요.</small>
           <label class="field">사용자 설정 대전 설정 코드 <input name="code" value="${f.code}" placeholder="게임에서 저장한 설정 코드" style="font-family: var(--num); font-weight: 800"><span class="hint">참가자들이 같은 설정으로 방을 만들 수 있게 일정 페이지에 같이 보여줘요.</span></label>
           <label class="field">공지 메모 <textarea name="memo" rows="2">${f.memo}</textarea></label>
           <div class="form-grid">

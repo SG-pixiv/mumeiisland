@@ -1,7 +1,7 @@
 // 디스코드에서 온 명령어 · 버튼 · 선택 메뉴를 처리해요.
 // discord.js 에 묶이지 않게 메시지 보내기 · 고치기는 바깥(index.js)에서 넣어 줘요 → 가짜로 테스트할 수 있어요.
 
-import { parseId } from './logic.js';
+import { parseId, autoAnnouncePlan, autoAnnounceText } from './logic.js';
 import { memoryStore, channelsOf, setChannels } from './store.js';
 
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
@@ -15,11 +15,13 @@ export function createRouter({
   service, guildId, siteUrl, sendMessage, editMessage, log = console,
   sendDM = async () => { throw new Error('DM 을 보낼 수 없어요'); },
   canPost = async () => true,          // 봇이 그 채널에 글을 쓸 수 있는지 (index.js 가 권한을 봐요)
-  store = memoryStore()                // 채널 설정 · 이미 올린 결과 (bot/data/settings.json)
+  store = memoryStore(),               // 채널 설정 · 이미 올린 결과 (bot/data/settings.json)
+  now = () => Date.now()
 }) {
   const isAdmin = (i) => !!i.memberPermissions?.has?.(ADMINISTRATOR);
   const displayName = (i) => i.member?.displayName || i.user?.globalName || i.user?.username || '';
   const eph = (content) => ({ content, flags: EPHEMERAL });
+  let manualPosts = 0;   // /내전공지 처리 중인 개수
 
   /** 봇이 올린 공지 · 투표 메시지를 지금 상태로 다시 그려요 */
   async function refresh(eventId, kind) {
@@ -160,11 +162,16 @@ export function createRouter({
       case '내전공지': {
         if (!(await staffOnly(i))) return;
         await i.deferReply({ flags: EPHEMERAL });
-        const r = await service.announce({ eventId });
-        if (!r.ok) return i.editReply({ content: r.text });
-        const ch = announceChannel(i);
-        await post(ch, r.event.id, 'signup', r.payload, r.old);
-        return i.editReply({ content: `**${r.event.title}** 공지를 ${where(ch, i)}에 올렸어요! 참가자가 버튼을 누를 때마다 인원이 바뀌어요.${r.old ? ' (예전 공지의 버튼은 뗐어요)' : ''}` });
+        manualPosts++;   // 그동안 자동 공지는 쉬어요 (예정 → 모집 중으로 바뀌는 순간 두 번 올라가지 않게)
+        try {
+          const r = await service.announce({ eventId });
+          if (!r.ok) return i.editReply({ content: r.text });
+          const ch = announceChannel(i);
+          await post(ch, r.event.id, 'signup', r.payload, r.old);
+          return i.editReply({ content: `**${r.event.title}** 공지를 ${where(ch, i)}에 올렸어요! 참가자가 버튼을 누를 때마다 인원이 바뀌어요.${r.old ? ' (예전 공지의 버튼은 뗐어요)' : ''}` });
+        } finally {
+          manualPosts--;
+        }
       }
       case 'mvp': {
         if (!(await staffOnly(i))) return;
@@ -192,7 +199,7 @@ export function createRouter({
         const cur = channelsOf(store, gid);
         if (sub === '보기') {
           return i.reply(eph([
-            `📢 공지 · 알림 채널: ${cur.announce ? `<#${cur.announce}>` : '아직 없어요 (명령어를 친 채널에 올라가요 · 라운드 결과 자동 공지는 꺼져 있어요)'}`,
+            `📢 공지 · 알림 채널: ${cur.announce ? `<#${cur.announce}> (참가 공지 · 라운드 결과 자동 게시 켜짐)` : '아직 없어요 (명령어를 친 채널에 올라가요 · 참가 공지 · 라운드 결과 자동 게시는 꺼져 있어요)'}`,
             `⌨️ 명령어 채널: ${cur.commands ? `<#${cur.commands}>` : '정하지 않았어요 (어디서나 쓸 수 있어요)'}`,
             '바꾸기: `/채널설정 공지` · `/채널설정 명령어` (채널을 안 고르면 지금 채널)'
           ].join('\n')));
@@ -205,7 +212,7 @@ export function createRouter({
         if (sub === '공지') {
           if (!(await canPost(ch))) return i.reply(eph(`봇이 <#${ch}> 에 글을 쓸 수 없어요. 그 채널 설정 → 권한에서 무명섬 봇에게 "채널 보기 · 메시지 보내기 · 링크 첨부"를 허용해 주세요.`));
           setChannels(store, gid, { announce: ch });
-          return i.reply(eph(`이제 내전 공지 · MVP 투표 · MVP 발표 · **라운드 결과**가 <#${ch}> 에 올라가요! 참가자는 이 채널에서 버튼만 누르면 돼서, 글쓰기는 막아 둬도 괜찮아요.`));
+          return i.reply(eph(`이제 내전 공지 · MVP 투표 · MVP 발표 · **라운드 결과**가 <#${ch}> 에 올라가요! 참가 공지는 일정이 모집 중이 되면 바로, 시작 24시간 전에 한 번 더 자동으로 올라가요. 참가자는 이 채널에서 버튼만 누르면 돼서, 글쓰기는 막아 둬도 괜찮아요.`));
         }
         setChannels(store, gid, { commands: ch });
         return i.reply(eph(`이제 /연결 · /연결해제 · /내정보 · /참가 · /참가취소 는 <#${ch}> 에서만 받아요. (관리자 명령어는 어디서나 돼요)`));
@@ -262,5 +269,38 @@ export function createRouter({
     }
   }
 
-  return { handle, refresh, refreshAll, announceResults };
+  /**
+   * 참가 공지 자동 게시 (30초마다): 모집 중이 되면 바로 · 시작 24시간 전에 한 번 더
+   * 공지 채널이 없으면 아무것도 안 해요 (채널을 정하면 그때 올라가요)
+   */
+  let autoBusy = false;
+  async function autoAnnounce() {
+    const channel = channelsOf(store, guildId).announce;
+    if (!channel || autoBusy || manualPosts) return 0;
+    autoBusy = true;
+    try {
+      const prev = store.get().autoAnnounce ?? {};
+      const { events, posted } = await service.autoAnnounceState();
+      const { posts, marks } = autoAnnouncePlan(events, posted, prev, now());
+      let done = 0;
+      for (const [k, p] of posts.entries()) {
+        try {
+          const payload = { content: autoAnnounceText(p, now()), ...(await service.signupPayload(p.event)) };
+          await post(channel, p.event.id, 'signup', payload, await service.getMessage(p.event.id, 'signup'));
+          done++;
+        } catch (e) {
+          log.warn(`[자동 공지] ${p.event.title} 참가 공지를 올리지 못했어요: ${e?.message ?? e}`);
+          // 못 올린 것부터는 기록을 되돌려서 다음 번에 다시 해요
+          for (const q of posts.slice(k)) { if (prev[q.event.id]) marks[q.event.id] = prev[q.event.id]; else delete marks[q.event.id]; }
+          break;
+        }
+      }
+      store.update({ autoAnnounce: marks });
+      return done;
+    } finally {
+      autoBusy = false;
+    }
+  }
+
+  return { handle, refresh, refreshAll, announceResults, autoAnnounce };
 }

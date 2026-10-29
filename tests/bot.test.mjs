@@ -6,7 +6,7 @@ import { createRouter, EPHEMERAL } from '../bot/src/router.js';
 import { tally, eventChoices, joinProblem, signupMessage, pickMvpEvent } from '../bot/src/logic.js';
 import { commands } from '../bot/src/commands.js';
 import { memoryStore, channelsOf } from '../bot/src/store.js';
-import { roundResultMessage, pts } from '../bot/src/logic.js';
+import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord } from '../bot/src/logic.js';
 
 // ── 가짜 Supabase
 const KEYS = {
@@ -127,13 +127,15 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
   const sent = [], edits = [], dms = [];
   const store = memoryStore();
   let gone = new Set();
+  let failing = false;
   const router = createRouter({
     service, guildId: 'G', siteUrl: 'https://mumei.test', log: { warn() {}, info() {} },
-    sendMessage: async (channelId, payload) => { const m = { id: `M${sent.length + 1}`, channelId }; sent.push({ ...m, payload }); return m; },
+    sendMessage: async (channelId, payload) => { if (failing) throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); const m = { id: `M${sent.length + 1}`, channelId }; sent.push({ ...m, payload }); return m; },
     editMessage: async (channelId, id, payload) => { if (gone.has(id)) throw Object.assign(new Error('Unknown Message'), { code: 10008 }); edits.push({ channelId, id, payload }); },
     sendDM: async (userId, content) => { if (dmFails) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 }); dms.push({ userId, content }); },
     canPost: async () => postable,
-    store
+    store,
+    now: () => NOW
   });
   const run = async (o) => {
     const replies = [];
@@ -154,7 +156,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
     return replies;
   };
   const last = (r) => r[r.length - 1]?.content ?? '';
-  return { db, service, router, run, last, sent, edits, gone, dms, store };
+  return { db, service, router, run, last, sent, edits, gone, dms, store, failSend: (v) => { failing = v; } };
 }
 
 test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아요', () => {
@@ -425,4 +427,75 @@ test('/관리자추가: 8단계 SQL 전이면 알려 줘요', async () => {
   const s = setup();
   s.db.rpc = async () => ({ data: null, error: { code: 'PGRST202', message: 'Could not find the function public.bot_grant_admin' } });
   assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-SG', users: { 유저: { id: 'D7', nick: '새 운영진' } } })), /8단계/);
+});
+
+test('autoAnnouncePlan: 모집 중이 되면 바로 · 24시간 전에 한 번 더 · 겹치면 한 번만', () => {
+  const H = 3600_000;
+  const T0 = Date.parse('2026-11-07T11:00:00Z');                  // 11월 7일 토 20:00 (한국)
+  const ev = (o = {}) => ({ id: 'A', title: '11월 7일 내전', starts_at: new Date(T0).toISOString(), status: 'open', ...o });
+  // ① 3일 전에 모집 중 → 바로 한 번
+  let r = autoAnnouncePlan([ev()], new Map(), {}, T0 - 72 * H);
+  assert.deepEqual(r.posts.map((p) => p.kind), ['open']);
+  const postedAt = new Map([['A', new Date(T0 - 72 * H).toISOString()]]);
+  assert.equal(autoAnnouncePlan([ev()], postedAt, r.marks, T0 - 71 * H).posts.length, 0, '다시 안 올려요');
+  // ② 24시간 전이 되면 한 번 더, 그 뒤로는 안 올려요
+  r = autoAnnouncePlan([ev()], postedAt, r.marks, T0 - 24 * H + 1000);
+  assert.deepEqual(r.posts.map((p) => p.kind), ['d1']);
+  assert.equal(autoAnnouncePlan([ev()], new Map([['A', new Date(T0 - 24 * H + 2000).toISOString()]]), r.marks, T0 - 23 * H).posts.length, 0);
+  // ③ 시작 20시간 전에 처음 모집 중 → 한 번만 (하루 전 공지 겸)
+  r = autoAnnouncePlan([ev()], new Map(), {}, T0 - 20 * H);
+  assert.deepEqual(r.posts.map((p) => p.kind), ['open']);
+  assert.equal(autoAnnouncePlan([ev()], new Map([['A', new Date(T0 - 20 * H).toISOString()]]), r.marks, T0 - 19 * H).posts.length, 0);
+  // ④ /내전공지 로 이미 올렸으면: 24시간 밖이면 하루 전에만, 24시간 안에 올렸으면 안 올려요
+  r = autoAnnouncePlan([ev()], new Map([['A', new Date(T0 - 50 * H).toISOString()]]), {}, T0 - 40 * H);
+  assert.equal(r.posts.length, 0);
+  assert.deepEqual(autoAnnouncePlan([ev()], new Map([['A', new Date(T0 - 50 * H).toISOString()]]), r.marks, T0 - 23 * H).posts.map((p) => p.kind), ['d1']);
+  assert.equal(autoAnnouncePlan([ev()], new Map([['A', new Date(T0 - 2 * H).toISOString()]]), {}, T0 - H).posts.length, 0);
+  // ⑤ 예정은 안 올려요, 확정은 하루 전에만, 끝났거나 시작한 내전은 무시 (기록도 지워요)
+  assert.equal(autoAnnouncePlan([ev({ status: 'plan' })], new Map(), {}, T0 - 10 * H).posts.length, 0);
+  assert.equal(autoAnnouncePlan([ev({ status: 'fixed' })], new Map(), {}, T0 - 30 * H).posts.length, 0);
+  assert.deepEqual(autoAnnouncePlan([ev({ status: 'fixed' })], new Map(), {}, T0 - 10 * H).posts.map((p) => p.kind), ['d1']);
+  assert.deepEqual(autoAnnouncePlan([ev()], new Map(), { A: { open: true } }, T0 + H), { posts: [], marks: {} });
+  // ⑥ 하루 전 공지 뒤에 일정을 이틀 미루면, 새 시각 기준 24시간 전에 다시
+  r = autoAnnouncePlan([ev()], postedAt, { A: { open: true } }, T0 - 10 * H);
+  const moved = ev({ starts_at: new Date(T0 + 48 * H).toISOString() });
+  assert.equal(autoAnnouncePlan([moved], new Map([['A', new Date(T0 - 10 * H).toISOString()]]), r.marks, T0 - 9 * H).posts.length, 0);
+  assert.deepEqual(autoAnnouncePlan([moved], new Map([['A', new Date(T0 - 10 * H).toISOString()]]), r.marks, T0 + 25 * H).posts.map((p) => p.kind), ['d1']);
+});
+
+test('autoAnnounceText · kstWhenWord: 한국 시간으로 오늘 · 내일', () => {
+  const start = '2026-11-07T11:00:00Z';                              // 토 20:00
+  assert.equal(kstWhenWord(start, Date.parse('2026-11-06T12:00:00Z')), '내일 오후 8시');   // 금 21:00
+  assert.equal(kstWhenWord(start, Date.parse('2026-11-07T01:00:00Z')), '오늘 오후 8시');   // 토 10:00
+  assert.equal(kstWhenWord('2026-11-07T11:30:00Z', Date.parse('2026-11-06T16:00:00Z')), '오늘 오후 8시 30분');   // 토 01:00 → 오늘
+  assert.equal(kstWhenWord('2026-11-07T03:00:00Z', Date.parse('2026-11-04T03:00:00Z')), '3일 뒤 오후 12시');
+  const e = { starts_at: start, status: 'open' };
+  assert.match(autoAnnounceText({ event: e, kind: 'open' }, Date.parse('2026-11-03T00:00:00Z')), /^📢 \*\*참가 모집을 시작했어요!/);
+  assert.match(autoAnnounceText({ event: e, kind: 'open' }, Date.parse('2026-11-06T12:00:00Z')), /참가 모집 시작! 내일 오후 8시 내전이에요/);
+  assert.match(autoAnnounceText({ event: e, kind: 'd1' }, Date.parse('2026-11-06T11:00:00Z')), /^⏰ \*\*내일 오후 8시 내전이에요!\*\* 아직 신청/);
+  assert.match(autoAnnounceText({ event: { ...e, status: 'fixed' }, kind: 'd1' }, Date.parse('2026-11-06T11:00:00Z')), /참가 명단이 확정됐어요/);
+});
+
+test('autoAnnounce: 공지 채널이 있을 때만, 한 번만 올리고 예전 공지 버튼은 떼요', async () => {
+  const s = setup();
+  s.db.t.events.find((e) => e.id === 'E1').status = 'open';         // 내일 20:00 (지금부터 23시간 뒤) 내전을 모집 중으로
+  assert.equal(await s.router.autoAnnounce(), 0, '공지 채널이 없으면 안 올려요');
+  assert.equal(s.sent.length, 0);
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  assert.equal(await s.router.autoAnnounce(), 1);
+  assert.equal(s.sent.length, 1);
+  assert.equal(s.sent[0].channelId, 'C-ANN');
+  assert.match(s.sent[0].payload.content, /참가 모집 시작! 내일 오후 8시 내전이에요/);
+  assert.equal(s.sent[0].payload.components[0].components[0].disabled, false, '참가하기 버튼');
+  assert.equal(s.db.t.bot_messages.length, 1);
+  assert.equal(await s.router.autoAnnounce(), 0, '다시 안 올려요');
+  // 올리다 실패하면 다음 번에 다시
+  const t = setup(() => 0.99, { postable: true });
+  t.db.t.events.find((e) => e.id === 'E1').status = 'open';
+  await t.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  const realSend = t.router;
+  t.failSend(true);
+  assert.equal(await realSend.autoAnnounce(), 0);
+  t.failSend(false);
+  assert.equal(await realSend.autoAnnounce(), 1);
 });

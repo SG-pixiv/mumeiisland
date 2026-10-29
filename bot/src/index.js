@@ -69,14 +69,17 @@ client.once(Events.ClientReady, async (c) => {
   tick();
   setInterval(tick, cfg.refreshMinutes * 60_000);
 
-  // 라운드 결과 자동 공지: 웹에서 확정하면 30초 안에 공지 채널로
-  if (!channelsOf(store, cfg.guildId).announce) log.warn('공지 채널이 아직 없어요. 디스코드에서 /채널설정 공지 를 해 주세요 (라운드 결과 자동 공지가 꺼져 있어요)');
+  // 30초마다: 라운드 결과 자동 공지(웹에서 확정하면) · 참가 공지 자동 게시
+  if (!channelsOf(store, cfg.guildId).announce) log.warn('공지 채널이 아직 없어요. 디스코드에서 /채널설정 공지 를 해 주세요 (참가 공지 · 라운드 결과 자동 게시가 꺼져 있어요)');
   let busy = false;
   const results = async () => {
     if (busy) return;
     busy = true;
     try { const n = await router.announceResults(); if (n) log.info(`라운드 결과 ${n}개를 공지했어요`); }
     catch (e) { log.warn(`[결과 공지] ${e?.message ?? e}`); }
+    // 참가 공지 자동 게시: 모집 중이 되면 바로 · 시작 24시간 전에 한 번 더
+    try { const n = await router.autoAnnounce(); if (n) log.info(`참가 공지 ${n}개를 자동으로 올렸어요`); }
+    catch (e) { log.warn(`[자동 공지] ${e?.message ?? e}`); }
     finally { busy = false; }
   };
   results();

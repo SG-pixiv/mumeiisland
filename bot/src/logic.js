@@ -133,6 +133,72 @@ export function signupMessage(event, participants, siteUrl) {
   };
 }
 
+// ── 참가 공지 자동 게시 (30초마다 확인)
+//   ① 일정이 "참가 모집 중"이 되면 바로
+//   ② 시작 24시간 전에 한 번 더 (모집 중 · 확정 내전). 이미 24시간 안에 올라간 공지가 있으면 건너뛰어요
+//   시작이 24시간도 안 남았을 때 모집 중이 되면 한 번만 올려요
+
+const DAY = 24 * HOUR;
+const kstDay = (t) => Math.floor((t + 9 * HOUR) / DAY);
+
+/**
+ * events: 아직 안 끝난 내전, posted: Map(내전 id → 마지막 참가 공지 시각), marks: 지난번 기록 { [id]: { open, d1 } }
+ * → { posts: [{ event, kind: 'open' | 'd1' }], marks }   marks 는 시작 전 내전만 남긴 새 객체
+ */
+export function autoAnnouncePlan(events, posted = new Map(), marks = {}, now = Date.now()) {
+  const posts = [];
+  const next = {};
+  for (const e of events) {
+    const start = ms(e.starts_at);
+    if (!(start > now) || e.status === 'done') continue;
+    const m = { ...(marks[e.id] ?? {}) };
+    const last = posted.get(e.id) ? ms(posted.get(e.id)) : null;
+    const inWindow = now >= start - DAY;
+    const postedInWindow = last !== null && last >= start - DAY;
+    if (e.status === 'open' && !m.open) {
+      m.open = true;
+      if (last === null) {                       // 손으로 올린 공지(/내전공지)가 있으면 그걸로 쳐요
+        posts.push({ event: e, kind: 'open' });
+        if (inWindow) m.d1 = e.starts_at;        // 24시간 안이면 이걸로 하루 전 공지도 끝
+      }
+    }
+    // 하루 전 공지는 "그 시작 시각" 기준이라 일정을 옮기면 다시 올라가요
+    if (inWindow && m.d1 !== e.starts_at && (e.status === 'open' || e.status === 'fixed')) {
+      m.d1 = e.starts_at;
+      if (!postedInWindow) posts.push({ event: e, kind: 'd1' });
+    }
+    next[e.id] = m;
+  }
+  return { posts, marks: next };
+}
+
+/** "내일 오후 8시" · "오늘 오후 8시 30분" (한국 시간) */
+export function kstWhenWord(iso, now = Date.now()) {
+  const t = ms(iso);
+  const diff = kstDay(t) - kstDay(now);
+  const dayWord = diff <= 0 ? '오늘' : diff === 1 ? '내일' : diff === 2 ? '모레' : `${diff}일 뒤`;
+  const d = new Date(t + 9 * HOUR);
+  const h = d.getUTCHours();
+  const m = d.getUTCMinutes();
+  const half = h < 12 ? '오전' : '오후';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${dayWord} ${half} ${h12}시${m ? ` ${m}분` : ''}`;
+}
+
+/** 자동 공지 위에 붙는 한 줄 */
+export function autoAnnounceText({ event, kind }, now = Date.now()) {
+  const soon = ms(event.starts_at) - now <= DAY;
+  const at = kstWhenWord(event.starts_at, now);
+  if (kind === 'open') {
+    return soon
+      ? `📢 **참가 모집 시작! ${at} 내전이에요.** 아래 [참가하기] 버튼이나 /참가 로 신청해 주세요!`
+      : '📢 **참가 모집을 시작했어요!** 아래 [참가하기] 버튼이나 /참가 로 신청해 주세요!';
+  }
+  return event.status === 'open'
+    ? `⏰ **${at} 내전이에요!** 아직 신청 안 했다면 아래 [참가하기] 버튼으로 신청해 주세요.`
+    : `⏰ **${at} 내전이에요!** 참가 명단이 확정됐어요. 늦지 않게 와 주세요!`;
+}
+
 /** MVP 투표 메시지: candidates = [{ id, name, tier, team }] */
 export function mvpMessage(event, candidates, votes, eligible) {
   const open = event.mvp_vote_status === 'open';
