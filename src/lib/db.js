@@ -33,17 +33,27 @@ export async function select(table, opts = {}) {
     if (limit) rows = rows.slice(0, limit);
     return clone(rows);
   }
-  let q = supabase.from(table).select(columns);
-  for (const [k, v] of Object.entries(opts.eq || {})) q = q.eq(k, v);
-  for (const [k, v] of Object.entries(opts.neq || {})) q = q.neq(k, v);
-  for (const [k, v] of Object.entries(opts.inn || {})) q = q.in(k, v);
-  for (const [k, v] of Object.entries(opts.gte || {})) q = q.gte(k, v);
-  for (const [k, v] of Object.entries(opts.lte || {})) q = q.lte(k, v);
-  for (const k of opts.isNull || []) q = q.is(k, null);
-  for (const k of opts.notNull || []) q = q.not(k, 'is', null);
-  if (order) q = q.order(order, { ascending: asc });
-  if (limit) q = q.limit(limit);
-  return check(await q) || [];
+  const build = () => {
+    let q = supabase.from(table).select(columns);
+    for (const [k, v] of Object.entries(opts.eq || {})) q = q.eq(k, v);
+    for (const [k, v] of Object.entries(opts.neq || {})) q = q.neq(k, v);
+    for (const [k, v] of Object.entries(opts.inn || {})) q = q.in(k, v);
+    for (const [k, v] of Object.entries(opts.gte || {})) q = q.gte(k, v);
+    for (const [k, v] of Object.entries(opts.lte || {})) q = q.lte(k, v);
+    for (const k of opts.isNull || []) q = q.is(k, null);
+    for (const k of opts.notNull || []) q = q.not(k, 'is', null);
+    if (order) q = q.order(order, { ascending: asc });
+    return q;
+  };
+  if (limit) return check(await build().limit(limit)) || [];
+  // Supabase 는 한 번에 1000줄까지만 보내요. 기록이 쌓여도 잘리지 않게 끝까지 나눠 받아요
+  const PAGE = 1000;
+  let all = [];
+  for (let from = 0; ; from += PAGE) {
+    const rows = check(await build().range(from, from + PAGE - 1)) || [];
+    all = all.concat(rows);
+    if (rows.length < PAGE) return all;
+  }
 }
 
 export async function insert(table, rows) {

@@ -343,8 +343,17 @@ export function createRouter({
 
   // ── 라운드 MVP 투표
 
+  // 같은 라운드 투표를 동시에 열거나 닫지 않게 (자동 마감과 /mvp 마감이 겹칠 때 발표가 두 번 올라가지 않게)
+  const voteLocks = new Set();
+  const withVoteLock = async (roundId, fn) => {
+    if (voteLocks.has(roundId)) return { ok: false, text: '그 라운드 투표를 처리하는 중이에요. 잠시 뒤 다시 해 주세요.' };
+    voteLocks.add(roundId);
+    try { return await fn(); } finally { voteLocks.delete(roundId); }
+  };
+
   /** 투표를 열고 그 채널에 투표 메시지를 올려요 */
-  async function openVote(roundId, channel, { reopen = false } = {}) {
+  const openVote = (roundId, channel, opts) => withVoteLock(roundId, () => openVoteNow(roundId, channel, opts));
+  async function openVoteNow(roundId, channel, { reopen = false } = {}) {
     const r = await service.openRoundVote(roundId, { reopen });
     if (!r.ok) return r;
     const old = r.round.mvp_message_id ? { c: r.round.mvp_channel_id, m: r.round.mvp_message_id } : null;
@@ -378,7 +387,8 @@ export function createRouter({
   }
 
   /** 마감 → 발표 올리고 투표 메시지는 지워요 */
-  async function closeVote(roundId) {
+  const closeVote = (roundId) => withVoteLock(roundId, () => closeVoteNow(roundId));
+  async function closeVoteNow(roundId) {
     const r = await service.closeRoundVote(roundId);
     if (!r.ok) return r;
     const voteMsg = r.round.mvp_channel_id && r.round.mvp_message_id ? [r.round.mvp_channel_id, r.round.mvp_message_id] : null;
@@ -427,6 +437,10 @@ export function createRouter({
       for (const e of events) {
         if (cleaned[e.id] || !eventEnded(e, rounds, now())) continue;
         const mine = (store.get().posts ?? []).filter((p) => p.e === e.id && (p.k === 'signup' || p.k === 'round-vote' || p.k === 'mvp'));
+        for (const kind of ['signup', 'mvp']) {   // 기억 목록에 없어도 DB 에 기록된 메시지는 지워요 (이 기능 전에 올린 것)
+          const m = await service.getMessage(e.id, kind);
+          if (m && !mine.some((p) => p.m === m.message_id)) mine.push({ c: m.channel_id, m: m.message_id });
+        }
         for (const p of mine) if (await dropPost(p.c, p.m)) removed++;
         await service.dropMessage(e.id, 'signup');
         await service.dropMessage(e.id, 'mvp');

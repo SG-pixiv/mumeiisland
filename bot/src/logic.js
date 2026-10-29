@@ -276,8 +276,6 @@ export function introMessage({ title, body, siteUrl }) {
   };
 }
 
-const comma = (n) => Number(n || 0).toLocaleString('en-US');
-
 /** 라운드 MVP 투표 메시지: candidates = [{ id, name, team, kills, assists, damage }] */
 export function roundVoteMessage({ event, round, candidates = [], votes = 0, eligible = 0, label = (n) => `팀 ${n}` }) {
   const open = round.mvp_vote_status === 'open';
@@ -302,7 +300,7 @@ export function roundVoteMessage({ event, round, candidates = [], votes = 0, eli
         type: 3, custom_id: `rmvp:${round.id}`, placeholder: 'MVP 고르기', min_values: 1, max_values: 1,
         options: candidates.slice(0, 25).map((c) => ({
           label: c.name.slice(0, 100), value: c.id,
-          description: `${label(c.team)} · ${c.kills}킬 ${c.assists}어시 · 딜 ${comma(c.damage)}`.slice(0, 100)
+          description: `${label(c.team)} · ${c.kills}킬 ${c.assists}어시`.slice(0, 100)
         }))
       }]
     }] : []

@@ -249,7 +249,7 @@ test('라운드 MVP: 확정하면 결과 공지 + 투표 자동 열기 → 30분
   const vote = s.sent[1];
   const menu = vote.payload.components[0].components[0];
   assert.equal(menu.custom_id, 'rmvp:R2');
-  assert.deepEqual(menu.options.map((o) => [o.label, o.description]), [['루미', '팀 1 · 0킬 0어시 · 딜 0'], ['나딘', '팀 2 · 0킬 0어시 · 딜 0']]);
+  assert.deepEqual(menu.options.map((o) => [o.label, o.description]), [['루미', '팀 1 · 0킬 0어시'], ['나딘', '팀 2 · 0킬 0어시']]);
   assert.match(vote.payload.embeds[0].title, /2라운드 MVP 투표/);
   assert.match(vote.payload.embeds[0].description, /<t:\d+:R> 마감 · 🗳️ \*\*0 \/ 3명\*\*/);
   const r2 = () => s.db.t.rounds.find((r) => r.id === 'R2');
@@ -677,4 +677,16 @@ test('cleanupDeleted: 잠깐 실패하면 다시 (5번까지), 라운드 결과 
   delete s.deleteFails[id];
   assert.equal(await s.router.cleanupDeleted(), 1);
   assert.equal(s.store.get().posts.length, 0);
+});
+
+test('라운드 MVP: 자동 마감과 /mvp 마감이 겹쳐도 발표는 한 번만', async () => {
+  const s = setup();
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1), mvp_vote_status: 'none' });
+  await s.run({ cmd: 'mvp', sub: '시작', admin: true });
+  await s.run({ kind: 'select', custom: 'rmvp:R2', values: ['P2'], user: 'D3' });
+  s.wait(31);
+  const [a, b] = await Promise.all([s.router.closeDueVotes(), s.run({ cmd: 'mvp', sub: '마감', admin: true })]);
+  const shown = s.sent.filter((m) => /MVP는/.test(m.payload.embeds?.[0]?.title ?? ''));
+  assert.equal(shown.length, 1, `발표 ${shown.length}번 (${a}, ${s.last(b)})`);
 });
