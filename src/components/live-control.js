@@ -58,7 +58,8 @@ function view(st, { compact }) {
   if (st.error && !d) return html`<p class="notice warn" style="margin: 0">진행판을 불러오지 못했어요 · ${st.error}</p>`;
   if (!d) return html`<p class="loading" style="margin: 0">진행판 불러오는 중…</p>`;
   if (!d.ready) return html`<div class="live-card"><h2>방송 진행판</h2><p class="notice warn" style="margin: 0">Supabase SQL Editor 에서 <b>20261028100000_overlay.sql</b> (7단계)을 실행하면 라운드 시작 버튼이 생겨요.</p></div>`;
-  if (!d.event) return html`<div class="live-card"><h2>방송 진행판</h2><p class="muted" style="margin: 0; font-weight: 600">아직 내전 일정이 없어요. <a href="/admin/schedule">일정 관리</a>에서 만들어 주세요.</p></div>`;
+  if (!d.event) return html`<div class="live-card${compact ? ' compact' : ''}"><h2>방송 진행판</h2><p class="muted" style="margin: 0; font-weight: 600">아직 오늘 · 곧 할 내전이 없어요. <a href="/admin/schedule">일정 관리</a>에서 만들면 여기에 라운드 시작 버튼이 생겨요.</p>
+    ${compact ? '' : html`<p class="live-hint" style="margin: 0"><a href="/admin/live" target="_blank" rel="noopener">OBS 조종판 · 오버레이 주소</a></p>`}</div>`;
   const ev = d.event;
   const live = liveOf(ev);
   const n = st.round ?? nextRoundNo(ev, d.rounds);

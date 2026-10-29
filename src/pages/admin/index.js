@@ -61,7 +61,7 @@ startAdmin('home', async (main, { user }) => {
   mount(main, html`
     <div><h1>대시보드</h1><p class="lead">어서 오세요! ${dateKo(new Date())}, ${next ? `다음 내전까지 ${Math.max(0, Math.ceil((new Date(next.starts_at) - Date.now()) / 86400000))}일 남았답니다.` : '아직 잡힌 내전이 없어요.'}</p></div>
     ${isDemo ? html`<p class="notice" style="margin: 0">지금은 예시 데이터로 돌아가는 데모 모드예요. 바꾼 내용은 새로고침하면 사라져요. Supabase 를 연결하면 진짜로 저장돼요.</p>` : ''}
-    ${events.length ? html`<div data-live-control></div>` : ''}
+    <div data-live-control></div>
     ${next ? html`<section class="hero" style="padding: 26px 28px; align-items: center">
       <div style="flex: 999 1 320px; display: grid; gap: 8px"><span class="sticker">다음 내전 · ${({ plan: '예정', open: '모집 중', fixed: '확정', done: '완료' })[next.status]}</span>
         <h2 class="big" style="font-size: 34px">${dateKo(next.starts_at)} ${timeKo(next.starts_at)}</h2>
