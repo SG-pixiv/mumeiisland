@@ -1,7 +1,7 @@
 // 디스코드에서 온 명령어 · 버튼 · 선택 메뉴를 처리해요.
 // discord.js 에 묶이지 않게 메시지 보내기 · 고치기는 바깥(index.js)에서 넣어 줘요 → 가짜로 테스트할 수 있어요.
 
-import { parseId, autoAnnouncePlan, autoAnnounceText } from './logic.js';
+import { parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage } from './logic.js';
 import { memoryStore, channelsOf, setChannels } from './store.js';
 
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
@@ -130,6 +130,16 @@ export function createRouter({
       return;
     }
 
+    // /소개공지 창에서 [보내기]
+    if (i.isModalSubmit?.()) {
+      if (i.customId !== INTRO_MODAL_ID) return;
+      if (!(await staffOnly(i))) return;
+      await i.deferReply({ flags: EPHEMERAL });
+      if (!(await canPost(i.channelId))) return i.editReply({ content: '봇이 이 채널에 글을 쓸 수 없어요. 채널 설정 → 권한에서 무명섬 봇에게 "채널 보기 · 메시지 보내기 · 링크 첨부"를 허용해 주세요.' });
+      await sendMessage(i.channelId, introMessage({ title: i.fields.getTextInputValue('title'), body: i.fields.getTextInputValue('body'), siteUrl }));
+      return i.editReply({ content: '소개 공지를 이 채널에 올렸어요! 그림은 디스코드 규칙상 눌러도 이동하지 않고, 제목과 아래 버튼을 누르면 무명섬 사이트로 가요. 고치고 싶으면 그 메시지를 지우고 다시 /소개공지 를 해 주세요.' });
+    }
+
     if (!i.isChatInputCommand()) return;
     const eventId = i.options.getString('내전') || null;
     const cmdChannel = channelsOf(store, i.guildId ?? guildId).commands;
@@ -172,6 +182,10 @@ export function createRouter({
         } finally {
           manualPosts--;
         }
+      }
+      case '소개공지': {
+        if (!(await staffOnly(i))) return;
+        return i.showModal(introModal(introDefaults({ commandsChannel: channelsOf(store, i.guildId ?? guildId).commands })));
       }
       case 'mvp': {
         if (!(await staffOnly(i))) return;

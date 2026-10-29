@@ -15,6 +15,7 @@ export const commands = [
   { name: '참가', description: '내전 참가 신청', options: [eventOption('비워 두면 모집 중인 가장 가까운 내전')] },
   { name: '참가취소', description: '내전 참가 취소', options: [eventOption('비워 두면 내가 신청한 가장 가까운 내전')] },
   { name: '내전공지', description: '참가 버튼이 달린 내전 공지를 공지 채널에 올려요 (운영진)', options: [eventOption()] },
+  { name: '소개공지', description: '무명섬 소개 공지(그림 + 사이트 버튼)를 이 채널에 올려요. 창에서 제목 · 내용을 고쳐요 (운영진)' },
   {
     name: 'mvp', description: 'MVP 투표 (운영진)',
     options: [

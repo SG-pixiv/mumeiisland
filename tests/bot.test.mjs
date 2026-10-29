@@ -6,7 +6,7 @@ import { createRouter, EPHEMERAL } from '../bot/src/router.js';
 import { tally, eventChoices, joinProblem, signupMessage, pickMvpEvent } from '../bot/src/logic.js';
 import { commands } from '../bot/src/commands.js';
 import { memoryStore, channelsOf } from '../bot/src/store.js';
-import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord } from '../bot/src/logic.js';
+import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord, introDefaults, introMessage } from '../bot/src/logic.js';
 
 // ── 가짜 Supabase
 const KEYS = {
@@ -149,6 +149,8 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
         getChannel: (k) => o.channels?.[k] ?? null
       },
       isAutocomplete: () => o.kind === 'auto', isButton: () => o.kind === 'button', isStringSelectMenu: () => o.kind === 'select', isChatInputCommand: () => (o.kind ?? 'cmd') === 'cmd',
+      isModalSubmit: () => o.kind === 'modal', fields: { getTextInputValue: (k) => o.fields?.[k] ?? '' },
+      showModal: async (x) => { replies.push({ modal: x }); },
       deferReply: async (x) => { replies.push({ defer: x }); },
       editReply: async (x) => { replies.push(x); }, reply: async (x) => { replies.push(x); }, respond: async (x) => { replies.push({ choices: x }); }
     };
@@ -168,7 +170,7 @@ test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아
   // 운영진 명령어도 목록에는 다 보여요 (봇이 서버 관리자 · 무명섬 관리자인지 확인)
   assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), []);
   assert.ok(commands.some((c) => c.name === '관리자추가' && c.options[0].required));
-  assert.equal(commands.length, 12);
+  assert.equal(commands.length, 13);
 });
 
 test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async () => {
@@ -498,4 +500,38 @@ test('autoAnnounce: 공지 채널이 있을 때만, 한 번만 올리고 예전 
   assert.equal(await realSend.autoAnnounce(), 0);
   t.failSend(false);
   assert.equal(await realSend.autoAnnounce(), 1);
+});
+
+test('/소개공지: 운영진만 · 창에서 고친 제목 · 내용으로 그림 + 사이트 버튼 공지', async () => {
+  const s = setup();
+  assert.match(s.last(await s.run({ cmd: '소개공지' })), /운영진/);
+  // 명령어 채널을 정해 두면 안내에 그 채널이 들어가요
+  await s.run({ cmd: '채널설정', sub: '명령어', admin: true, channel: 'C-CMD' });
+  const r = await s.run({ cmd: '소개공지', user: 'D-A' });                       // 서버 관리자가 아니어도 무명섬 관리자면 돼요
+  const modal = r.at(-1).modal;
+  assert.equal(modal.custom_id, 'intro');
+  assert.match(modal.components[1].components[0].value, /<#C-CMD> 에서 `\/연결 게임닉네임`/);
+  assert.ok(modal.title.length <= 45 && modal.components.every((row) => row.components[0].label.length <= 45));
+
+  // 창에서 보내기 → 그 채널에
+  assert.match(s.last(await s.run({ kind: 'modal', custom: 'intro', fields: { title: '잘 왔군', body: '나의 무명섬에.' } })), /운영진/);
+  const done = s.last(await s.run({ kind: 'modal', custom: 'intro', user: 'D-SG', channel: 'C-HELLO', fields: { title: ' 잘 왔군 ', body: '나의 무명섬에.' } }));
+  assert.match(done, /소개 공지를 이 채널에 올렸어요/);
+  const m = s.sent.at(-1);
+  assert.equal(m.channelId, 'C-HELLO');
+  const e = m.payload.embeds[0];
+  assert.deepEqual([e.title, e.url, e.description, e.image.url], ['잘 왔군', 'https://mumei.test', '나의 무명섬에.', 'https://mumei.test/welcome.png']);
+  assert.deepEqual(m.payload.components[0].components.map((b) => [b.style, b.url]), [[5, 'https://mumei.test'], [5, 'https://mumei.test/schedule'], [5, 'https://mumei.test/matches'], [5, 'https://mumei.test/players'], [5, 'https://mumei.test/rules']]);
+  // 다른 창 · 권한 없는 채널
+  assert.equal((await s.run({ kind: 'modal', custom: 'other', user: 'D-SG' })).length, 0);
+  const t = setup(() => 0.99, { postable: false });
+  assert.match(t.last(await t.run({ kind: 'modal', custom: 'intro', user: 'D-SG', fields: { title: 'a', body: 'b' } })), /글을 쓸 수 없어요/);
+  assert.equal(t.sent.length, 0);
+});
+
+test('introDefaults · introMessage: 명령어 채널이 없으면 "아무 채널에서", 사이트 주소가 없으면 그림 · 버튼 없이', () => {
+  assert.match(introDefaults().body, /아무 채널에서 `\/연결 게임닉네임`/);
+  assert.ok(introDefaults().body.length <= 4000);
+  const m = introMessage({ title: '', body: 'x', siteUrl: '' });
+  assert.deepEqual([m.embeds[0].title, m.embeds[0].image, m.components.length], ['무명섬', undefined, 0]);
 });

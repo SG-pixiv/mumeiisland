@@ -199,6 +199,64 @@ export function autoAnnounceText({ event, kind }, now = Date.now()) {
     : `⏰ **${at} 내전이에요!** 참가 명단이 확정됐어요. 늦지 않게 와 주세요!`;
 }
 
+// ── 디스코드 첫 소개 공지 (/소개공지 → 창에서 제목 · 내용 고치기 → 이 채널에)
+//   디스코드는 그림을 링크로 만들 수 없어서, 제목과 아래 버튼을 누르면 사이트로 가요
+
+export const INTRO_MODAL_ID = 'intro';
+
+/** 창에 미리 채워 둘 제목 · 내용 (commandsChannel: /채널설정 명령어 로 정한 채널) */
+export function introDefaults({ commandsChannel = null } = {}) {
+  const where = commandsChannel ? `<#${commandsChannel}> 에서` : '아무 채널에서';
+  return {
+    title: '🏝️ 무명섬에 오신 걸 환영해요!',
+    body: [
+      '이터널 리턴 사설 내전 **무명섬**이 문을 열었어요!',
+      '',
+      '🗓️ 내전 일정과 참가 신청',
+      '🏆 내전 기록 · 선수 랭킹 · MVP',
+      '👥 팀 편성 · 드래프트 진행판',
+      '',
+      '**참가하는 법**',
+      `1️⃣ ${where} \`/연결 게임닉네임\` 을 입력해 주세요. 운영진이 확인하면 연결 끝!`,
+      '2️⃣ 내전 공지가 올라오면 [참가하기] 버튼을 누르거나 `/참가`',
+      '3️⃣ 내 정보는 `/내정보` 로 확인해요',
+      '',
+      '제목이나 아래 버튼을 누르면 무명섬 사이트로 가요.'
+    ].join('\n')
+  };
+}
+
+/** /소개공지 를 치면 뜨는 창 */
+export function introModal({ title, body }) {
+  return {
+    custom_id: INTRO_MODAL_ID,
+    title: '무명섬 소개 공지',
+    components: [
+      { type: 1, components: [{ type: 4, custom_id: 'title', label: '제목', style: 1, required: true, max_length: 200, value: title.slice(0, 200) }] },
+      { type: 1, components: [{ type: 4, custom_id: 'body', label: '내용 (줄바꿈 · **굵게** 다 돼요)', style: 2, required: true, max_length: 4000, value: body.slice(0, 4000) }] }
+    ]
+  };
+}
+
+/** 소개 공지 메시지: 큰 그림(welcome.png) + 사이트로 가는 링크 버튼 */
+export function introMessage({ title, body, siteUrl }) {
+  const url = (path = '') => (siteUrl ? `${siteUrl}${path}` : undefined);
+  const links = siteUrl ? [
+    ['무명섬 바로가기', ''], ['내전 일정', '/schedule'], ['내전 기록', '/matches'], ['선수 · 랭킹', '/players'], ['규칙', '/rules']
+  ] : [];
+  return {
+    embeds: [{
+      title: String(title || '').trim().slice(0, 256) || '무명섬',
+      url: url(),
+      description: String(body || '').trim().slice(0, 4096),
+      color: PINK,
+      image: siteUrl ? { url: url('/welcome.png') } : undefined,
+      footer: { text: '무명섬 · 이터널 리턴 사설 내전' }
+    }],
+    components: links.length ? [{ type: 1, components: links.map(([label, path]) => ({ type: 2, style: 5, label, url: url(path) })) }] : []
+  };
+}
+
 /** MVP 투표 메시지: candidates = [{ id, name, tier, team }] */
 export function mvpMessage(event, candidates, votes, eligible) {
   const open = event.mvp_vote_status === 'open';
