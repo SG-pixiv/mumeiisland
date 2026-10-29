@@ -52,14 +52,16 @@ export async function currentSeason() {
 }
 
 export async function loadPlayers({ includeInactive = false } = {}) {
-  const [rows, ranks, stats, season] = await Promise.all([
+  const [rows, ranks, stats, season, mvps] = await Promise.all([
     select('players', includeInactive ? { order: 'display_name' } : { eq: { active: true }, order: 'display_name' }),
     select('player_rank_stats'),
     select('v_player_stats'),
-    currentSeason()
+    currentSeason(),
+    select('v_player_round_mvp').catch(() => [])   // 9단계 SQL 전이면 빈 목록
   ]);
   const rankBy = new Map(ranks.map((r) => [r.player_id, r]));
-  const list = rows.map((r) => normPlayer(r, rankBy.get(r.id), stats.filter((s) => s.player_id === r.id), season));
+  const mvpBy = new Map(mvps.map((m) => [m.player_id, Number(m.round_mvp) || 0]));
+  const list = rows.map((r) => ({ ...normPlayer(r, rankBy.get(r.id), stats.filter((s) => s.player_id === r.id), season), roundMvp: mvpBy.get(r.id) || 0 }));
   return { list, byId: new Map(list.map((p) => [p.id, p])), season };
 }
 
@@ -120,17 +122,23 @@ export function teamMembers(teamRows, playerRounds, byId) {
 }
 
 export async function loadEventDetail(id) {
-  const [[ev], scores, standings, prounds, teams, { byId }] = await Promise.all([
+  const [[ev], scores, standings, prounds, teams, { byId }, mvpRows] = await Promise.all([
     select('events', { eq: { id } }),
     select('v_round_team_scores', { eq: { event_id: id } }),
     select('v_event_standings', { eq: { event_id: id } }),
     select('v_player_rounds', { eq: { event_id: id } }),
     select('event_teams', { eq: { event_id: id } }),
-    loadPlayers({ includeInactive: true })
+    loadPlayers({ includeInactive: true }),
+    select('rounds', { eq: { event_id: id, status: 'confirmed' }, columns: 'id, round_no, mvp_player_id, mvp_vote_result' }).catch(() => [])   // 9단계 전이면 빈 목록
   ]);
   if (!ev) return null;
   const roundNos = [...new Set(scores.map((s) => s.round_no))].sort((a, b) => a - b);
-  return { event: ev, scores, standings, prounds, roundNos, members: teamMembers(teams, prounds, byId), byId };
+  // 라운드 번호 → { player, votes, total, drawn } (디스코드 라운드 MVP 투표)
+  const roundMvp = new Map(mvpRows.filter((r) => r.mvp_player_id && byId.get(r.mvp_player_id)).map((r) => {
+    const res = r.mvp_vote_result || {};
+    return [r.round_no, { player: byId.get(r.mvp_player_id), votes: res.counts?.[r.mvp_player_id] ?? null, total: res.votes ?? null, drawn: !!res.drawn }];
+  }));
+  return { event: ev, scores, standings, prounds, roundNos, members: teamMembers(teams, prounds, byId), byId, roundMvp };
 }
 
 export async function loadMatchList() {
@@ -148,7 +156,7 @@ export async function loadMatchList() {
     const winner = st[0];
     const members = teamMembers(teams.filter((t) => t.event_id === e.id), prounds.filter((r) => r.event_id === e.id), byId);
     const rounds = Math.max(0, ...st.map((s) => Number(s.rounds)));
-    return { ...e, winner, winnerMembers: winner ? members.get(winner.team_no) || [] : [], teams: st.length, rounds, mvp: e.mvp_player_id ? byId.get(e.mvp_player_id) : null };
+    return { ...e, winner, winnerMembers: winner ? members.get(winner.team_no) || [] : [], teams: st.length, rounds };
   });
 }
 

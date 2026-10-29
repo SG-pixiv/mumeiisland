@@ -10,7 +10,7 @@ startPublic('matches', async (main) => {
     mount(main, html`<a class="btn ghost" href="/matches" style="justify-self: start">← 내전 기록 목록</a><p class="empty">앗, 이 내전 기록을 찾지 못했어요.</p>`);
     return;
   }
-  const { event: ev, scores, standings, prounds, roundNos, members, byId } = d;
+  const { event: ev, scores, standings, prounds, roundNos, members, byId, roundMvp } = d;
   document.title = `무명섬 · ${ev.title}`;
   let tab = 0; // 0 = 누적
 
@@ -38,11 +38,14 @@ startPublic('matches', async (main) => {
     const topKill = list.slice().sort((a, b) => b.kills - a.kills)[0];
     const topAssist = list.slice().sort((a, b) => b.assists - a.assists)[0];
     const topKs = standings.slice().sort((a, b) => b.ks - a.ks)[0];
-    const mvp = ev.mvp_player_id ? byId.get(ev.mvp_player_id) : null;
+    // 라운드 MVP: 이 내전에서 가장 많이 뽑힌 사람 (같으면 먼저 뽑힌 사람)
+    const mvpCount = new Map();
+    [...roundMvp.entries()].sort((a, b) => a[0] - b[0]).forEach(([, m]) => mvpCount.set(m.player.id, { p: m.player, n: (mvpCount.get(m.player.id)?.n || 0) + 1 }));
+    const topMvp = [...mvpCount.values()].sort((a, b) => b.n - a.n)[0];
     const card = (label, who, value, bg, fg) => html`<div style="display: flex; align-items: center; gap: 14px; background: ${bg}; border: 2px solid var(--ink); border-radius: 24px; padding: 18px; box-shadow: 0 5px 0 var(--ink)">
       <span style="display: grid; min-width: 0"><span style="font-size: 13px; font-weight: 700">${label}</span><span style="font-family: var(--head); font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${who}</span><span class="num" style="color: ${fg}">${value}</span></span></div>`;
     return html`<div class="grid" style="--min: 230px">
-      ${mvp ? card('MVP', mvp.name, mvpNote(ev), 'var(--t3s)', 'var(--t3)') : ''}
+      ${topMvp ? card('라운드 MVP', topMvp.n > 1 ? topMvp.p.name : '라운드별 MVP', `${topMvp.n > 1 ? `${topMvp.n}번 · ` : ''}${[...roundMvp.entries()].sort((a, b) => a[0] - b[0]).map(([no, m]) => `${no}R ${m.player.name}`).join(' · ')}`, 'var(--t3s)', 'var(--t3)') : ''}
       ${card('최다 킬', topKill.name, `${topKill.kills}킬 · ${roundNos.length}라운드 합계`, 'var(--soft)', 'var(--pink-ink)')}
       ${card('최다 어시스트', topAssist.name, `${topAssist.assists}어시 · ${roundNos.length}라운드 합계`, 'var(--sky-soft)', 'var(--sky-ink)')}
       ${topKs ? card('최다 킬 점수 팀', '팀 ' + topKs.team_no, 'KS ' + score(topKs.ks), 'var(--t1s)', 'var(--t1)') : ''}
@@ -51,11 +54,13 @@ startPublic('matches', async (main) => {
 
   const playersTable = () => {
     const rows = prounds.filter((r) => r.round_no === tab).sort((a, b) => a.team_rank - b.team_rank || a.team_no - b.team_no);
+    const mvp = roundMvp.get(tab);
     return html`<section class="card"><div class="card-head"><h2>선수별 기록</h2><span class="muted" style="font-size: 12px; font-weight: 600">게임에서 저장한 결과 데이터로 자동 입력됐어요</span></div>
+      ${mvp ? html`<p class="chip warn" style="justify-self: start; margin: 0; font-family: var(--head); font-size: 15px">${tab}라운드 MVP · ${mvp.player.name}${mvp.votes !== null && mvp.total ? html` <span class="num" style="font-size: 13px">${mvp.total}표 중 ${mvp.votes}표${mvp.drawn ? ' · 공동 1위 추첨' : ''}</span>` : ''}</p>` : ''}
       <div class="table-wrap"><table class="data pink" style="min-width: 580px"><thead><tr><th>선수</th><th>팀</th><th>실험체</th><th class="r">킬</th><th class="r">어시</th><th class="r">TK</th></tr></thead><tbody>
         ${rows.map((r) => {
           const p = r.player_id ? byId.get(r.player_id) : null;
-          return html`<tr><td><span class="flex" style="flex-wrap: nowrap">${tierDot(p?.tier || 3)}<b>${p?.name || r.csv_nickname}</b></span></td><td class="muted" style="font-weight: 600">팀 ${r.team_no} · ${r.team_rank}위</td><td style="font-family: var(--head)">${r.character_name || '-'}</td><td class="r">${r.kills}</td><td class="r">${r.assists}</td><td class="r">${r.team_kills}</td></tr>`;
+          return html`<tr><td><span class="flex" style="flex-wrap: nowrap">${tierDot(p?.tier || 3)}<b>${p?.name || r.csv_nickname}</b>${mvp && r.player_id && r.player_id === mvp.player.id ? html`<span class="chip warn plain" style="font-size: 11px; padding: 0 7px">MVP</span>` : ''}</span></td><td class="muted" style="font-weight: 600">팀 ${r.team_no} · ${r.team_rank}위</td><td style="font-family: var(--head)">${r.character_name || '-'}</td><td class="r">${r.kills}</td><td class="r">${r.assists}</td><td class="r">${r.team_kills}</td></tr>`;
         })}
       </tbody></table></div></section>`;
   };
@@ -86,11 +91,3 @@ startPublic('matches', async (main) => {
   on(main, 'click', '[data-tab]', (_e, b) => { tab = Number(b.dataset.tab); draw(); });
   draw();
 });
-
-// MVP 카드 아래 한 줄: 디스코드 투표 결과가 있으면 표 수와 추첨 여부
-function mvpNote(ev) {
-  const r = ev.mvp_vote_result;
-  if (!r || r.picked !== ev.mvp_player_id) return '디스코드 투표';
-  const got = r.counts?.[r.picked] ?? 0;
-  return `디스코드 투표 ${r.votes}표 중 ${got}표${r.drawn ? ` · 공동 1위 ${r.tied?.length ?? 2}명 중 추첨` : ''}`;
-}

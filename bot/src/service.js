@@ -2,8 +2,9 @@
 // db = Supabase 클라이언트 (비밀 키 · service_role). 테스트에서는 가짜 DB 를 넣어요.
 
 import {
-  shortKst, pickSignupEvent, pickAnnounceEvent, pickMvpEvent, pickOpenVoteEvent, eventChoices,
-  joinProblem, leaveProblem, voteProblem, tally, signupMessage, mvpMessage, mvpResultMessage, roundResultMessage
+  shortKst, pickSignupEvent, pickAnnounceEvent, pickMvpEvent, eventChoices,
+  joinProblem, leaveProblem, roundVoteProblem, tally, signupMessage, roundResultMessage,
+  roundVoteMessage, roundMvpResultMessage, ROUND_VOTE_MINUTES
 } from './logic.js';
 
 export function createService(db, { siteUrl = '', rng = Math.random, now = () => Date.now() } = {}) {
@@ -12,6 +13,8 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
     return data;
   };
   const id = (v) => String(v ?? '').trim();
+  /** 9단계 SQL(라운드 MVP 칸) 전이면 그 칸이 없다는 오류가 와요 → 투표 기능만 조용히 쉬어요 */
+  const missingColumn = (error) => !!error && (error.code === '42703' || /mvp_vote_status|mvp_vote_closes_at|round_mvp_votes|does not exist/.test(error.message ?? ''));
 
   // ── 읽기
   const allEvents = async () => must(await db.from('events').select('*').order('starts_at', { ascending: true })) ?? [];
@@ -47,14 +50,38 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
   const dropMessage = async (eventId, kind) => { must(await db.from('bot_messages').delete().eq('event_id', eventId).eq('kind', kind)); };
 
   const signupPayload = async (event) => signupMessage(event, await participants(event.id), siteUrl);
-  const candidates = async (eventId) => {
-    const [list, teams] = await Promise.all([participants(eventId), db.from('event_teams').select('player_id, team_no').eq('event_id', eventId).then(must)]);
-    const teamOf = new Map((teams ?? []).map((t) => [t.player_id, t.team_no]));
-    return list.map((p) => ({ ...p, team: teamOf.get(p.id) ?? null }));
+  /** 팀 이름: 드래프트 내전이면 팀장 이름 (예: 새벽사냥꾼 팀), 아니면 팀 N */
+  const teamLabel = async (event) => {
+    const evTeams = must(await db.from('event_teams').select('player_id, team_no, slot_tier').eq('event_id', event.id)) ?? [];
+    const captains = evTeams.filter((t) => t.slot_tier === 1);
+    const names = await playersByIds(captains.map((t) => t.player_id));
+    const captainOf = new Map(captains.map((t) => [t.team_no, names.get(t.player_id)?.display_name]));
+    return (no) => (event.format === 'draft' && captainOf.get(no) ? `${captainOf.get(no)} 팀` : `팀 ${no}`);
   };
-  const mvpPayload = async (event) => {
-    const [cands, votes] = await Promise.all([candidates(event.id), db.from('mvp_votes').select('voter_player_id').eq('event_id', event.id).then(must)]);
-    return mvpMessage(event, cands, (votes ?? []).length, cands.length);
+
+  // ── 라운드 MVP 투표
+  const ROUND_COLS = 'id, event_id, round_no, status, confirmed_at, mvp_player_id, mvp_vote_status, mvp_vote_closes_at, mvp_vote_result, mvp_channel_id, mvp_message_id';
+  const roundById = async (roundId) => (roundId ? must(await db.from('rounds').select(ROUND_COLS).eq('id', roundId).maybeSingle()) : null);
+  /** 후보 = 그 라운드에 뛴 무명섬 선수 [{ id, name, team, kills, assists, damage }] */
+  const roundCandidates = async (round) => {
+    const rows = (must(await db.from('round_players').select('player_id, team_no, kills, assists, damage').eq('round_id', round.id)) ?? []).filter((r) => r.player_id);
+    const names = await playersByIds([...new Set(rows.map((r) => r.player_id))]);
+    const seen = new Set();
+    return rows.filter((r) => names.has(r.player_id) && !seen.has(r.player_id) && seen.add(r.player_id))
+      .map((r) => ({ id: r.player_id, name: names.get(r.player_id).display_name, team: r.team_no, kills: r.kills ?? 0, assists: r.assists ?? 0, damage: r.damage ?? 0 }))
+      .sort((a, b) => a.team - b.team || a.name.localeCompare(b.name, 'ko'));
+  };
+  /** 투표할 수 있는 사람 = 내전 참가자 + 그 라운드에 뛴 선수 */
+  const roundVoters = async (round, cands) => new Set([...(await participantRows(round.event_id)).map((p) => p.player_id), ...cands.map((c) => c.id)]);
+  const roundVotePayload = async (round, event = null) => {
+    const ev = event ?? (await eventById(round.event_id));
+    const cands = await roundCandidates(round);
+    const [voters, votes, label] = await Promise.all([
+      roundVoters(round, cands),
+      db.from('round_mvp_votes').select('voter_player_id').eq('round_id', round.id).then(must),
+      teamLabel(ev)
+    ]);
+    return roundVoteMessage({ event: ev, round, candidates: cands, votes: (votes ?? []).length, eligible: voters.size, label });
   };
 
   /** 소유자가 추가했지만 아직 사이트에 로그인하지 않은 사람 (8단계 SQL 전이면 없음) */
@@ -76,7 +103,7 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
   };
 
   return {
-    webAdmin, allEvents, eventById, playerByDiscord, participants, getMessage, saveMessage, dropMessage, signupPayload, mvpPayload,
+    webAdmin, allEvents, eventById, playerByDiscord, participants, getMessage, saveMessage, dropMessage, signupPayload,
 
     /** 내전 자동완성 */
     async eventChoices(query) { return eventChoices(await allEvents(), query, now()); },
@@ -180,45 +207,98 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       return { ok: true, event, old: await getMessage(event.id, 'signup'), payload: await signupPayload(event) };
     },
 
-    /** /mvp 시작 */
-    async mvpStart({ eventId }) {
-      const event = await resolveEvent(eventId, pickMvpEvent);
-      if (!event) return { ok: false, text: 'MVP 투표를 열 내전이 없어요.' };
-      const cands = await candidates(event.id);
-      if (cands.length < 2) return { ok: false, text: `**${event.title}** 참가자가 2명 이상이어야 투표할 수 있어요.` };
-      const reopened = event.mvp_vote_status === 'closed';
-      if (event.mvp_vote_status !== 'open') {
-        must(await db.from('events').update({ mvp_vote_status: 'open' }).eq('id', event.id));
-        event.mvp_vote_status = 'open';
-      }
-      return { ok: true, event, reopened, old: await getMessage(event.id, 'mvp'), payload: await mvpPayload(event) };
+    /** 라운드 MVP 투표 열기 (확정되면 자동 · /mvp 시작). reopen: 마감된 투표도 다시 (이전 표는 그대로) */
+    async openRoundVote(roundId, { reopen = false } = {}) {
+      const res = await db.from('rounds').select(ROUND_COLS).eq('id', roundId).maybeSingle();
+      if (missingColumn(res.error)) return { ok: false, text: '아직 DB 9단계를 안 했어요. Supabase SQL Editor 에서 20261029020000_round_mvp.sql 을 실행해 주세요.' };
+      const round = must(res);
+      if (!round || round.status !== 'confirmed' || !round.event_id || !round.round_no) return { ok: false, text: '확정된 라운드만 MVP 투표를 열 수 있어요.' };
+      const event = await eventById(round.event_id);
+      if (!event) return { ok: false, text: '그 라운드의 내전을 찾지 못했어요.' };
+      if (round.mvp_vote_status === 'open') return { ok: false, already: true, round, event, text: `**${event.title} ${round.round_no}라운드** MVP 투표는 이미 열려 있어요.` };
+      if (round.mvp_vote_status === 'closed' && !reopen) return { ok: false, round, event, text: `**${event.title} ${round.round_no}라운드** MVP 투표는 이미 끝났어요.` };
+      const cands = await roundCandidates(round);
+      if (cands.length < 2) return { ok: false, round, event, text: `**${event.title} ${round.round_no}라운드** 기록에 무명섬 선수가 2명 이상 있어야 투표할 수 있어요. 결과 검토에서 닉네임을 선수와 연결해 주세요.` };
+      const reopened = round.mvp_vote_status === 'closed';
+      const closesAt = new Date(now() + ROUND_VOTE_MINUTES * 60_000).toISOString();
+      must(await db.from('rounds').update({ mvp_vote_status: 'open', mvp_vote_closes_at: closesAt }).eq('id', round.id));
+      Object.assign(round, { mvp_vote_status: 'open', mvp_vote_closes_at: closesAt });
+      return { ok: true, event, round, reopened, payload: await roundVotePayload(round, event) };
     },
+    async saveRoundVoteMessage(roundId, channelId, messageId) {
+      must(await db.from('rounds').update({ mvp_channel_id: channelId ? id(channelId) : null, mvp_message_id: messageId ? id(messageId) : null }).eq('id', roundId));
+    },
+    roundById, roundVotePayload,
 
-    /** 투표 (선택 메뉴) */
-    async vote({ discordId, eventId, candidateId }) {
-      const [event, voter] = await Promise.all([eventById(eventId), playerByDiscord(discordId)]);
-      const ids = new Set((event ? await participantRows(event.id) : []).map((p) => p.player_id));
-      const why = voteProblem({ event, voter: voter?.id, candidate: candidateId, isParticipant: !!voter && ids.has(voter.id), candidateIsParticipant: ids.has(candidateId) });
+    /** 라운드 MVP 투표 (선택 메뉴) */
+    async voteRound({ discordId, roundId, candidateId }) {
+      const [round, voter] = await Promise.all([roundById(roundId), playerByDiscord(discordId)]);
+      const cands = round ? await roundCandidates(round) : [];
+      const voters = round ? await roundVoters(round, cands) : new Set();
+      const why = roundVoteProblem({ round, voter: voter?.id, candidate: candidateId, voters, candidates: new Set(cands.map((c) => c.id)), now: now() });
       if (why) return { ok: false, text: why };
-      must(await db.from('mvp_votes').upsert({ event_id: event.id, voter_player_id: voter.id, candidate_player_id: candidateId, voted_at: new Date(now()).toISOString() }, { onConflict: 'event_id,voter_player_id' }));
-      const name = (await playersByIds([candidateId])).get(candidateId)?.display_name ?? '그 선수';
-      return { ok: true, text: `**${name}** 님에게 투표했어요! 마감 전까지 다시 고르면 바꿀 수 있어요.`, event };
+      must(await db.from('round_mvp_votes').upsert({ round_id: round.id, voter_player_id: voter.id, candidate_player_id: candidateId, voted_at: new Date(now()).toISOString() }, { onConflict: 'round_id,voter_player_id' }));
+      const name = cands.find((c) => c.id === candidateId)?.name ?? '그 선수';
+      return { ok: true, text: `**${name}** 님에게 투표했어요! 마감 전까지 다시 고르면 바꿀 수 있어요.`, round };
     },
 
-    /** /mvp 마감: 최다 득표가 MVP, 공동 1위는 추첨 → 내전의 MVP 로 저장 */
-    async mvpClose({ eventId }) {
-      const event = eventId ? await eventById(eventId) : pickOpenVoteEvent(await allEvents());
-      if (!event) return { ok: false, text: '지금 투표 중인 내전이 없어요.' };
-      if (event.mvp_vote_status !== 'open') return { ok: false, text: `**${event.title}** 은(는) 투표 중이 아니에요.` };
-      const votes = must(await db.from('mvp_votes').select('candidate_player_id').eq('event_id', event.id)) ?? [];
+    /**
+     * 라운드 MVP 투표 마감: 최다 득표가 그 라운드 MVP, 공동 1위는 추첨
+     * → { ok, round, event, announce?, empty?, cancelled? }   (투표 메시지 지우기는 router)
+     */
+    async closeRoundVote(roundId) {
+      const round = await roundById(roundId);
+      if (!round || round.mvp_vote_status !== 'open') return { ok: false, round, text: '지금 투표 중인 라운드가 아니에요.' };
+      const event = await eventById(round.event_id);
+      if (round.status !== 'confirmed' || !event) {   // 투표 중에 확정을 취소했거나 내전이 없어졌어요 → 투표만 접어요
+        must(await db.from('rounds').update({ mvp_vote_status: 'none', mvp_vote_closes_at: null }).eq('id', round.id));
+        return { ok: true, cancelled: true, round, event };
+      }
+      const votes = must(await db.from('round_mvp_votes').select('candidate_player_id').eq('round_id', round.id)) ?? [];
       const result = tally(votes, rng);
-      if (!result.picked) return { ok: false, text: '아직 투표가 하나도 없어요. 조금만 더 기다려 주세요!' };
       const saved = { counts: result.counts, tied: result.tied, picked: result.picked, drawn: result.drawn, votes: result.votes, closed_at: new Date(now()).toISOString() };
-      must(await db.from('events').update({ mvp_vote_status: 'closed', mvp_player_id: result.picked, mvp_vote_result: saved }).eq('id', event.id));
-      event.mvp_vote_status = 'closed';
+      must(await db.from('rounds').update({ mvp_vote_status: 'closed', mvp_player_id: result.picked ?? null, mvp_vote_result: saved }).eq('id', round.id));
+      round.mvp_vote_status = 'closed';
+      if (!result.picked) return { ok: true, empty: true, round, event };
       const names = await playersByIds(Object.keys(result.counts));
       const nameOf = (pid) => names.get(pid)?.display_name ?? '알 수 없음';
-      return { ok: true, event, result, announce: mvpResultMessage(event, result, nameOf), old: await getMessage(event.id, 'mvp'), payload: await mvpPayload(event), mvpName: nameOf(result.picked) };
+      return { ok: true, round, event, result, mvpName: nameOf(result.picked), announce: roundMvpResultMessage({ event, round, result, nameOf, siteUrl }) };
+    },
+
+    /** 마감 시각이 지난 투표들 */
+    async dueRoundVotes() {
+      const res = await db.from('rounds').select(ROUND_COLS).eq('mvp_vote_status', 'open');
+      if (missingColumn(res.error)) return [];
+      return (must(res) ?? []).filter((r) => !r.mvp_vote_closes_at || Date.parse(r.mvp_vote_closes_at) <= now());
+    },
+
+    /** /mvp 시작 · 마감 이 다룰 라운드 (내전 · 라운드 번호를 안 고르면 알아서) */
+    async pickVoteRound({ eventId = null, roundNo = null, open = false } = {}) {
+      const probe = await db.from('rounds').select('mvp_vote_status').limit(1);
+      if (missingColumn(probe.error)) throw new Error('아직 DB 9단계를 안 했어요. Supabase SQL Editor 에서 20261029020000_round_mvp.sql 을 실행해 주세요.');
+      if (!eventId && !roundNo && open) {   // 마감: 열려 있는 투표 중 가장 먼저 마감될 것
+        const list = must(await db.from('rounds').select(ROUND_COLS).eq('mvp_vote_status', 'open')) ?? [];
+        return list.sort((a, b) => Date.parse(a.mvp_vote_closes_at ?? 0) - Date.parse(b.mvp_vote_closes_at ?? 0))[0] ?? null;
+      }
+      const event = await resolveEvent(eventId, pickMvpEvent);
+      if (!event) return null;
+      const rounds = (must(await db.from('rounds').select(ROUND_COLS).eq('event_id', event.id)) ?? []).filter((r) => r.status === 'confirmed');
+      if (roundNo) return rounds.find((r) => r.round_no === roundNo) ?? null;
+      const pool = open ? rounds.filter((r) => r.mvp_vote_status === 'open') : rounds;
+      return pool.sort((a, b) => b.round_no - a.round_no)[0] ?? null;
+    },
+
+    /** 내전 끝 정리용: 최근 3일 안에 시작한 내전과 그 라운드 */
+    async recentEventsWithRounds() {
+      const events = (await allEvents()).filter((e) => {
+        const t = Date.parse(e.starts_at);
+        return t <= now() && t >= now() - 3 * 24 * 3600_000;
+      });
+      if (!events.length) return { events, rounds: [] };
+      const ids = events.map((e) => e.id);
+      let res = await db.from('rounds').select('id, event_id, round_no, status, mvp_vote_status').in('event_id', ids);
+      if (missingColumn(res.error)) res = await db.from('rounds').select('id, event_id, round_no, status').in('event_id', ids);   // 9단계 전
+      return { events, rounds: must(res) ?? [] };
     },
 
     /** /관리자키 [유저]: 그 디스코드 계정만 쓸 수 있는 24시간 키 (권한 확인은 router) */
@@ -317,18 +397,17 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
         members.set(p.team_no, list);
       }
       // 드래프트 내전이면 팀장 이름으로 불러요 (예: 새벽사냥꾼 팀)
-      const captainOf = new Map((evTeams ?? []).filter((t) => t.slot_tier === 1).map((t) => [t.team_no, names.get(t.player_id)?.display_name]));
-      const label = (no) => (event.format === 'draft' && captainOf.get(no) ? `${captainOf.get(no)} 팀` : `팀 ${no}`);
+      const label = await teamLabel(event);
       return { event, round, payload: roundResultMessage({ event, round, teams: teams ?? [], standings: standings ?? [], members, label, siteUrl, edited }) };
     },
 
-    /** 주기적으로 다시 그릴 메시지: 끝나지 않은 내전의 공지 · 투표 중인 MVP */
+    /** 주기적으로 다시 그릴 메시지: 끝나지 않은 내전의 참가 공지 (라운드 투표는 표가 들어올 때마다 바로 고쳐요) */
     async liveMessages() {
-      const rows = must(await db.from('bot_messages').select('*')) ?? [];
+      const rows = (must(await db.from('bot_messages').select('*')) ?? []).filter((r) => r.kind === 'signup');
       if (!rows.length) return [];
       const evs = new Map((await allEvents()).map((e) => [e.id, e]));
       return rows.map((r) => ({ ...r, event: evs.get(r.event_id) }))
-        .filter((r) => r.event && (r.kind === 'signup' ? r.event.status !== 'done' : r.event.mvp_vote_status === 'open'));
+        .filter((r) => r.event && r.event.status !== 'done');
     }
   };
 }

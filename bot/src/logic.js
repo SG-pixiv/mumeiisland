@@ -29,14 +29,10 @@ export function pickAnnounceEvent(events, now = Date.now()) {
   return events.filter((e) => e.status !== 'done' && ms(e.starts_at) >= now - 6 * HOUR)
     .sort((a, b) => ms(a.starts_at) - ms(b.starts_at))[0] ?? null;
 }
-/** MVP 투표 시작: 이미 시작한(시작 시각이 지난) 내전 중 가장 최근 것 */
+/** 라운드 MVP 투표 (/mvp): 이미 시작한(시작 시각이 지난) 내전 중 가장 최근 것 */
 export function pickMvpEvent(events, now = Date.now()) {
   return events.filter((e) => ms(e.starts_at) <= now + HOUR)
     .sort((a, b) => ms(b.starts_at) - ms(a.starts_at))[0] ?? null;
-}
-/** MVP 마감: 투표 중인 내전 (여럿이면 가장 최근) */
-export function pickOpenVoteEvent(events) {
-  return events.filter((e) => e.mvp_vote_status === 'open').sort((a, b) => ms(b.starts_at) - ms(a.starts_at))[0] ?? null;
 }
 
 /** 내전 자동완성 목록 (최대 25개): 끝나지 않은 것 먼저, 가까운 날짜 순 */
@@ -89,13 +85,36 @@ export function tally(votes, rng = Math.random) {
   return { counts, ranking, tied, picked, drawn: tied.length > 1, votes: votes.length };
 }
 
-export function voteProblem({ event, voter, candidate, isParticipant, candidateIsParticipant }) {
+// ── 라운드 MVP 투표 (결과를 확정하면 자동으로 열고 30분 뒤 자동 마감)
+
+export const ROUND_VOTE_MINUTES = 30;
+
+/**
+ * 라운드 MVP 투표를 할 수 있는지
+ * voters: 투표할 수 있는 선수 id (내전 참가자 + 그 라운드에 뛴 선수), candidates: 후보 id (그 라운드에 뛴 선수)
+ */
+export function roundVoteProblem({ round, voter, candidate, voters = new Set(), candidates = new Set(), now = Date.now() }) {
   if (!voter) return '먼저 `/연결 게임닉네임` 으로 디스코드 계정을 연결해 주세요!';
-  if (!event || event.mvp_vote_status !== 'open') return 'MVP 투표가 열려 있지 않아요.';
-  if (!isParticipant) return '이 내전 참가자만 투표할 수 있어요.';
-  if (!candidate || !candidateIsParticipant) return '그 선수는 후보가 아니에요.';
+  if (!round || round.mvp_vote_status !== 'open' || round.status !== 'confirmed') return 'MVP 투표가 열려 있지 않아요.';
+  if (round.mvp_vote_closes_at && ms(round.mvp_vote_closes_at) <= now) return '투표가 막 마감됐어요! 곧 발표돼요.';
+  if (!voters.has(voter)) return '이 내전 참가자만 투표할 수 있어요.';
+  if (!candidate || !candidates.has(candidate)) return '그 선수는 후보가 아니에요.';
   if (candidate === voter) return '자기 자신은 고를 수 없어요!';
   return '';
+}
+
+/**
+ * 내전이 끝났는지 → 끝나면 참가 공지 · 투표 메시지를 지워요 (라운드 결과 · MVP 발표는 남겨요)
+ * 끝 = 시작한 뒤에 (상태 완료) 또는 (시작 12시간 뒤) 또는 (예정 라운드를 다 확정했고 열려 있는 투표가 없음)
+ */
+export function eventEnded(event, rounds = [], now = Date.now()) {
+  const start = ms(event.starts_at);
+  if (!(start <= now)) return false;
+  if (event.status === 'done' || now >= start + 12 * HOUR) return true;
+  const mine = rounds.filter((r) => r.event_id === event.id && r.status === 'confirmed');
+  const planned = Number(event.planned_rounds) || 0;
+  if (!planned || new Set(mine.map((r) => r.round_no)).size < planned) return false;
+  return mine.every((r) => r.mvp_vote_status !== 'open');
 }
 
 // ── 메시지 (discord.js 에 그대로 넘기는 JSON)
@@ -257,45 +276,54 @@ export function introMessage({ title, body, siteUrl }) {
   };
 }
 
-/** MVP 투표 메시지: candidates = [{ id, name, tier, team }] */
-export function mvpMessage(event, candidates, votes, eligible) {
-  const open = event.mvp_vote_status === 'open';
+const comma = (n) => Number(n || 0).toLocaleString('en-US');
+
+/** 라운드 MVP 투표 메시지: candidates = [{ id, name, team, kills, assists, damage }] */
+export function roundVoteMessage({ event, round, candidates = [], votes = 0, eligible = 0, label = (n) => `팀 ${n}` }) {
+  const open = round.mvp_vote_status === 'open';
+  const closes = round.mvp_vote_closes_at;
   return {
     embeds: [{
-      title: `🏆 ${event.title} MVP 투표`,
+      title: `🏆 ${event.title} ${round.round_no}라운드 MVP 투표`,
       description: open
-        ? `오늘 가장 빛난 생존자를 골라 주세요!\n이 내전 참가자만 투표할 수 있고, 마감 전까지 몇 번이든 바꿀 수 있어요. 자기 자신은 못 골라요.\n\n🗳️ **${votes} / ${eligible}명** 투표했어요`
+        ? [
+          '이번 판에서 가장 빛난 생존자를 골라 주세요!',
+          '이 내전 참가자만 투표할 수 있고, 마감 전까지 몇 번이든 바꿀 수 있어요. 자기 자신은 못 골라요.',
+          '',
+          `⏰ ${closes ? `<t:${unix(closes)}:R> 마감` : '곧 마감'} · 🗳️ **${votes} / ${eligible}명** 투표했어요`
+        ].join('\n')
         : `투표가 마감됐어요! 🗳️ ${votes}명이 투표했어요.`,
       color: open ? PINK : SKY,
-      footer: { text: '최다 득표가 MVP · 공동 1위면 봇이 추첨해요 · 무명섬' }
+      footer: { text: '최다 득표가 라운드 MVP · 공동 1위면 봇이 추첨해요 · 무명섬' }
     }],
     components: open && candidates.length ? [{
       type: 1,
       components: [{
-        type: 3, custom_id: `mvp:${event.id}`, placeholder: 'MVP 고르기', min_values: 1, max_values: 1,
+        type: 3, custom_id: `rmvp:${round.id}`, placeholder: 'MVP 고르기', min_values: 1, max_values: 1,
         options: candidates.slice(0, 25).map((c) => ({
           label: c.name.slice(0, 100), value: c.id,
-          description: `${c.tier}티어${c.team ? ` · 팀 ${c.team}` : ''}`
+          description: `${label(c.team)} · ${c.kills}킬 ${c.assists}어시 · 딜 ${comma(c.damage)}`.slice(0, 100)
         }))
       }]
     }] : []
   };
 }
 
-/** MVP 결과 발표 */
-export function mvpResultMessage(event, result, nameOf) {
+/** 라운드 MVP 발표 (이 메시지는 내전이 끝나도 남겨요) */
+export function roundMvpResultMessage({ event, round, result, nameOf, siteUrl }) {
   const name = nameOf(result.picked);
   const top = result.ranking[0]?.votes ?? 0;
   const lines = [
     result.drawn
       ? `공동 1위 ${result.tied.length}명(각 ${top}표) 중에서 추첨했어요! 🎲\n후보: ${result.tied.map(nameOf).join(', ')}`
-      : `**${top}표**로 MVP가 됐어요!`,
+      : `**${top}표**로 ${round.round_no}라운드 MVP가 됐어요!`,
     '',
     ...result.ranking.slice(0, 5).map((r, i) => `${i + 1}. ${nameOf(r.id)} — ${r.votes}표`)
   ];
   return {
     embeds: [{
-      title: `🏆 ${event.title} MVP는 ${name}!`,
+      title: `🏆 ${event.title} ${round.round_no}라운드 MVP는 ${name}!`,
+      url: siteUrl ? `${siteUrl}/match?id=${event.id}` : undefined,
       description: lines.join('\n'),
       color: PINK,
       footer: { text: `${result.votes}명 투표 · 축하해요! · 무명섬` }

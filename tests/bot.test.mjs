@@ -6,13 +6,13 @@ import { createRouter, EPHEMERAL } from '../bot/src/router.js';
 import { tally, eventChoices, joinProblem, signupMessage, pickMvpEvent } from '../bot/src/logic.js';
 import { commands } from '../bot/src/commands.js';
 import { memoryStore, channelsOf } from '../bot/src/store.js';
-import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord, introDefaults, introMessage } from '../bot/src/logic.js';
+import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord, introDefaults, introMessage, eventEnded } from '../bot/src/logic.js';
 
 // ── 가짜 Supabase
 const KEYS = {
   events: ['id'], players: ['id'], player_private: ['player_id'], event_participants: ['event_id', 'player_id'],
   event_teams: ['event_id', 'player_id'], bot_messages: ['event_id', 'kind'], mvp_votes: ['event_id', 'voter_player_id'],
-  player_rank_stats: ['player_id'], discord_link_requests: ['id'], admins: ['user_id'], admin_keys: ['id'], admin_grants: ['discord_id']
+  player_rank_stats: ['player_id'], discord_link_requests: ['id'], admins: ['user_id'], admin_keys: ['id'], admin_grants: ['discord_id'], round_mvp_votes: ['round_id', 'voter_player_id']
 };
 function fakeDb(seed) {
   const t = structuredClone(seed);
@@ -123,7 +123,8 @@ const seed = () => ({
 // ── 가짜 디스코드
 function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
   const db = fakeDb(seed());
-  const service = createService(db, { siteUrl: 'https://mumei.test', rng, now: () => NOW });
+  let clock = NOW;
+  const service = createService(db, { siteUrl: 'https://mumei.test', rng, now: () => clock });
   const sent = [], edits = [], dms = [];
   const store = memoryStore();
   let gone = new Set();
@@ -141,7 +142,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
     sendDM: async (userId, content) => { if (dmFails) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 }); dms.push({ userId, content }); },
     canPost: async () => postable,
     store,
-    now: () => NOW
+    now: () => clock
   });
   const run = async (o) => {
     const replies = [];
@@ -150,7 +151,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
       memberPermissions: { has: (bit) => !!o.admin && bit === 8n },
       commandName: o.cmd, customId: o.custom, values: o.values,
       options: {
-        getString: (k) => o.opts?.[k] ?? null, getSubcommand: () => o.sub, getFocused: () => o.focus ?? '',
+        getString: (k) => o.opts?.[k] ?? null, getInteger: (k) => o.ints?.[k] ?? null, getSubcommand: () => o.sub, getFocused: () => o.focus ?? '',
         getUser: (k) => o.users?.[k] ?? null, getMember: (k) => (o.users?.[k] ? { displayName: o.users[k].nick } : null),
         getChannel: (k) => o.channels?.[k] ?? null
       },
@@ -164,7 +165,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
     return replies;
   };
   const last = (r) => r[r.length - 1]?.content ?? '';
-  return { db, service, router, run, last, sent, edits, gone, dms, store, deleted, deleteFails, failSend: (v) => { failing = v; } };
+  return { db, service, router, run, last, sent, edits, gone, dms, store, deleted, deleteFails, failSend: (v) => { failing = v; }, wait: (minutes) => { clock += minutes * 60_000; } };
 }
 
 test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아요', () => {
@@ -236,33 +237,113 @@ test('/내전공지 → 버튼으로 참가 · 취소, 인원 메시지가 바�
   assert.equal(s.db.t.bot_messages[0].message_id, 'M2');
 });
 
-test('/mvp 시작 → 투표 → /mvp 마감: 최다 득표 MVP, 공동 1위는 추첨', async () => {
+test('라운드 MVP: 확정하면 결과 공지 + 투표 자동 열기 → 30분 뒤 자동 마감 · 발표 · 투표 메시지 삭제', async () => {
   const s = setup(() => 0.99);   // 추첨은 마지막 후보
   s.db.t.player_private.push({ player_id: 'P1', discord_id: 'D1' });
-  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true, opts: { 내전: 'E0' } })), /MVP 투표를 이 채널에 열었어요/);
-  const menu = s.sent[0].payload.components[0].components[0];
-  assert.equal(menu.custom_id, 'mvp:E0');
-  assert.deepEqual(menu.options.map((o) => o.label), ['루미', '나딘', '혜진']);
-  assert.equal(s.db.t.events.find((e) => e.id === 'E0').mvp_vote_status, 'open');
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  await s.router.announceResults();                                  // 처음: 예전 판(R1)은 표시만, 투표도 안 열어요
+  assert.equal(s.sent.length, 0);
+  s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1), mvp_vote_status: 'none' });
+  assert.equal(await s.router.announceResults(), 1);
+  assert.equal(s.sent.length, 2, '결과 공지 + 투표');
+  const vote = s.sent[1];
+  const menu = vote.payload.components[0].components[0];
+  assert.equal(menu.custom_id, 'rmvp:R2');
+  assert.deepEqual(menu.options.map((o) => [o.label, o.description]), [['루미', '팀 1 · 0킬 0어시 · 딜 0'], ['나딘', '팀 2 · 0킬 0어시 · 딜 0']]);
+  assert.match(vote.payload.embeds[0].title, /2라운드 MVP 투표/);
+  assert.match(vote.payload.embeds[0].description, /<t:\d+:R> 마감 · 🗳️ \*\*0 \/ 3명\*\*/);
+  const r2 = () => s.db.t.rounds.find((r) => r.id === 'R2');
+  assert.deepEqual([r2().mvp_vote_status, r2().mvp_message_id, r2().mvp_vote_closes_at], ['open', vote.id, new Date(NOW + 30 * 60_000).toISOString()]);
 
-  assert.match(s.last(await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P3'], user: 'D1' })), /참가자만/);   // 귀련은 E0 에 안 나왔어요
-  assert.match(s.last(await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P2'], user: 'D2' })), /자기 자신/);
-  assert.match(s.last(await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P3'], user: 'D2' })), /나딘\*\* 님에게 투표/);
-  await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P4'], user: 'D2' });                                    // 바꾸기
-  await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P2'], user: 'D3' });
-  assert.equal(s.db.t.mvp_votes.length, 2);
+  // 투표
+  const pick = (user, who) => s.run({ kind: 'select', custom: 'rmvp:R2', values: [who], user });
+  assert.match(s.last(await pick('D1', 'P3')), /참가자만/);          // 귀련은 E0 에 안 나왔어요
+  assert.match(s.last(await pick('D2', 'P2')), /자기 자신/);
+  assert.match(s.last(await pick('D2', 'P4')), /후보가 아니에요/);   // 혜진은 참가자지만 이 판 기록에 없어요
+  assert.match(s.last(await pick('D2', 'P3')), /나딘\*\* 님에게 투표/);
+  await pick('D4', 'P3');
+  await pick('D4', 'P2');                                             // 바꾸기 → 루미 1 · 나딘 1
+  assert.equal(s.db.t.round_mvp_votes.length, 2);
   assert.match(s.edits.at(-1).payload.embeds[0].description, /2 \/ 3명/);
+  assert.match(s.last(await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P3'], user: 'D2' })), /라운드마다/);   // 예전 내전 투표 메뉴
 
-  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '마감', admin: true })), /MVP는 \*\*혜진\*\* \(공동 1위 추첨\)/);   // 루미 1 · 혜진 1 → 추첨
-  const ev = s.db.t.events.find((e) => e.id === 'E0');
-  assert.equal(ev.mvp_vote_status, 'closed');
-  assert.equal(ev.mvp_player_id, 'P4');
-  assert.deepEqual(ev.mvp_vote_result.tied.sort(), ['P2', 'P4']);
-  assert.equal(ev.mvp_vote_result.drawn, true);
-  assert.match(s.sent.at(-1).payload.embeds[0].title, /MVP는 혜진!/);
-  assert.deepEqual(s.edits.at(-1).payload.components, []);                                                         // 투표 메뉴를 닫아요
-  assert.match(s.last(await s.run({ kind: 'select', custom: 'mvp:E0', values: ['P3'], user: 'D4' })), /열려 있지 않아요/);
-  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '마감', admin: true })), /투표 중인 내전이 없어요/);
+  // 30분 전에는 안 닫아요 → 지나면 자동 마감
+  s.wait(29);
+  assert.equal(await s.router.closeDueVotes(), 0);
+  s.wait(2);
+  assert.match(s.last(await pick('D3', 'P2')), /막 마감됐어요/);
+  assert.equal(await s.router.closeDueVotes(), 1);
+  assert.deepEqual([r2().mvp_vote_status, r2().mvp_player_id, r2().mvp_vote_result.drawn, r2().mvp_message_id], ['closed', 'P3', true, null]);
+  const ann = s.sent.at(-1);
+  assert.equal(ann.channelId, 'C-ANN');
+  assert.equal(ann.payload.embeds[0].title, '🏆 10월 24일 내전 2라운드 MVP는 나딘!');
+  assert.match(ann.payload.embeds[0].description, /공동 1위 2명\(각 1표\) 중에서 추첨/);
+  assert.deepEqual(s.deleted.map((d) => d.id), [vote.id], '투표 메시지는 지워요');
+  assert.deepEqual(s.store.get().posts.map((p) => p.k), ['result', 'mvp-result'], '결과 · 발표만 남아요');
+  assert.equal(await s.router.closeDueVotes(), 0);
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '마감', admin: true })), /투표 중인 라운드가 없어요/);
+  // 다시 확정해도 투표를 또 열지 않아요
+  r2().confirmed_at = iso(-0.2);
+  await s.router.announceResults();
+  assert.equal(s.sent.at(-1).payload.embeds[0].title, '🏁 10월 24일 내전 2라운드 결과 (수정됨)');
+});
+
+test('/mvp 시작 · 마감: 운영진이 손으로 열고(다시 열기) 바로 마감', async () => {
+  const s = setup(() => 0);
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작' })), /운영진/);
+  s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1), mvp_vote_status: 'none' });
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true, ints: { 라운드: 1 } })), /무명섬 선수가 2명 이상/);   // R1 은 선수 기록이 없어요
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true, ints: { 라운드: 9 } })), /투표를 열 라운드가 없어요/);
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true })), /2라운드\*\* MVP 투표를 이 채널에 열었어요! 30분 뒤 자동으로/);   // 비우면 가장 최근 내전 · 라운드
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true })), /이미 열려 있어요/);
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '마감', admin: true })), /아무도 투표하지 않아서 MVP 는 없어요/);
+  assert.equal(s.db.t.rounds.find((r) => r.id === 'R2').mvp_player_id, null);
+  // 다시 열기 → 표가 있으면 바로 마감
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true, opts: { 내전: 'E0' }, ints: { 라운드: 2 } })), /다시 열었어요/);
+  await s.run({ kind: 'select', custom: 'rmvp:R2', values: ['P2'], user: 'D3' });
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '마감', admin: true })), /\*\*2라운드\*\* MVP는 \*\*루미\*\*/);
+  assert.equal(s.db.t.rounds.find((r) => r.id === 'R2').mvp_player_id, 'P2');
+  // 투표 중에 확정을 취소하면 마감 때 투표만 접어요
+  s.db.t.rounds.find((r) => r.id === 'R2').mvp_vote_status = 'none';
+  await s.run({ cmd: 'mvp', sub: '시작', admin: true });
+  s.db.t.rounds.find((r) => r.id === 'R2').status = 'pending';
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '마감', admin: true })), /확정이 취소돼서 투표를 접었어요/);
+});
+
+test('cleanupEnded: 내전이 끝나면 참가 공지 · 투표만 지우고 결과 · 발표는 남겨요', async () => {
+  const s = setup();
+  const e1 = () => s.db.t.events.find((e) => e.id === 'E1');
+  e1().status = 'open';
+  e1().planned_rounds = 1;
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  await s.router.autoAnnounce();                                  // 참가 공지 M1
+  assert.equal(await s.router.cleanupEnded(), 0, '시작 전');
+  e1().starts_at = iso(-24 - 1);                                  // 1시간 전에 시작
+  assert.equal(await s.router.cleanupEnded(), 0, '아직 라운드를 다 안 했어요');
+  s.store.update({ posts: [...s.store.get().posts, { e: 'E1', k: 'result', c: 'C-ANN', m: 'RES1' }, { e: 'E1', k: 'mvp-result', c: 'C-ANN', m: 'ANN1' }, { e: 'E1', k: 'round-vote', c: 'C-ANN', m: 'VOTE1' }] });
+  s.db.t.rounds.push({ id: 'R9', event_id: 'E1', round_no: 1, status: 'confirmed', confirmed_at: iso(-24), mvp_vote_status: 'open' });
+  assert.equal(await s.router.cleanupEnded(), 0, '투표가 아직 열려 있어요');
+  s.db.t.rounds.find((r) => r.id === 'R9').mvp_vote_status = 'closed';
+  assert.equal(await s.router.cleanupEnded(), 2);
+  assert.deepEqual(s.deleted.map((d) => d.id).sort(), ['M1', 'VOTE1']);
+  assert.deepEqual(s.store.get().posts.map((p) => p.m), ['RES1', 'ANN1']);
+  assert.equal(s.db.t.bot_messages.filter((m) => m.event_id === 'E1').length, 0);
+  assert.equal(await s.router.cleanupEnded(), 0, '한 번만');
+});
+
+test('eventEnded: 완료 · 12시간 · 예정 라운드를 다 하고 투표도 끝', () => {
+  const H = 3600_000;
+  const now = Date.parse('2026-11-07T15:00:00Z');
+  const ev = (o = {}) => ({ id: 'A', starts_at: new Date(now - 2 * H).toISOString(), status: 'fixed', planned_rounds: 2, ...o });
+  const r = (no, o = {}) => ({ event_id: 'A', round_no: no, status: 'confirmed', mvp_vote_status: 'closed', ...o });
+  assert.equal(eventEnded(ev({ starts_at: new Date(now + H).toISOString(), status: 'done' }), [], now), false, '시작 전이면 아니에요');
+  assert.equal(eventEnded(ev({ status: 'done' }), [], now), true);
+  assert.equal(eventEnded(ev(), [], now + 10 * H), true, '시작 12시간 뒤');
+  assert.equal(eventEnded(ev(), [r(1)], now), false);
+  assert.equal(eventEnded(ev(), [r(1), r(2, { mvp_vote_status: 'open' })], now), false);
+  assert.equal(eventEnded(ev(), [r(1), r(2, { status: 'pending' })], now), false);
+  assert.equal(eventEnded(ev(), [r(1), r(2, { mvp_vote_status: 'none' })], now), true);
+  assert.equal(eventEnded(ev({ planned_rounds: 0 }), [r(1)], now), false);
 });
 
 test('/관리자키: 서버 관리자만, 명령어를 쓴 디스코드 계정 전용 키', async () => {
@@ -586,7 +667,9 @@ test('cleanupDeleted: 잠깐 실패하면 다시 (5번까지), 라운드 결과 
   await s.router.announceResults();
   s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1) });
   assert.equal(await s.router.announceResults(), 1);
-  assert.deepEqual(s.store.get().posts.map((p) => [p.e, p.k]), [['E0', 'result']]);
+  assert.deepEqual(s.store.get().posts.map((p) => [p.e, p.k]), [['E0', 'result'], ['E0', 'round-vote']]);   // 결과 + 라운드 MVP 투표
+  await s.router.closeDueVotes();
+  s.store.update({ posts: s.store.get().posts.filter((p) => p.k === 'result') });
   const id = s.store.get().posts[0].m;
   s.deleteFails[id] = 500;
   s.db.t.events = s.db.t.events.filter((e) => e.id !== 'E0');

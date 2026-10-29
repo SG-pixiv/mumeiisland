@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   pts, liveOf, pickLiveEvent, nextRoundNo, liveLabel, liveAction, teamLabeler, membersByTeam,
-  buildStandings, buildRoundResult, mvpInfo, sizeParam
+  buildStandings, buildRoundResult, sizeParam
 } from '../src/lib/live.js';
 
 const NOW = Date.parse('2026-10-31T21:00:00+09:00');
@@ -102,22 +102,6 @@ test('buildRoundResult: 그 라운드 순위 + 그때까지 누적', () => {
   const r2 = buildRoundResult({ scores, roundNo: 2 });
   assert.deepEqual(r2.rows.map((r) => [r.rank, r.teamNo, r.cumTotal, r.cumRank]), [[1, 2, 29, 1], [2, 1, 26, 2]]);
   assert.equal(buildRoundResult({ scores, roundNo: 3 }), null);
-});
-
-test('mvpInfo: 발표 · 동점 추첨 · 투표 중 · 없음', () => {
-  const teamOf = (id) => (id === 'p1' ? '새벽사냥꾼 팀' : '');
-  const done = mvpInfo({ mvp_player_id: 'p1', mvp_vote_result: { counts: { p1: 9, p4: 5 }, tied: ['p1'], drawn: false, votes: 24 } }, { names, teamOf });
-  assert.equal(done.kind, 'done');
-  assert.equal(done.note, '새벽사냥꾼 팀 · 24표 중 9표');
-  const drawn = mvpInfo({ mvp_player_id: 'p1', mvp_vote_result: { counts: { p1: 9, p4: 9 }, tied: ['p1', 'p4'], drawn: true, votes: 24 } }, { names, teamOf });
-  assert.equal(drawn.note, '9표 공동 1위 · 추첨으로 뽑혔어요');
-  const manual = mvpInfo({ mvp_player_id: 'p4' }, { names });
-  assert.equal(manual.name, '루미아토박이');
-  assert.equal(manual.note, '', '투표 없이 정한 MVP');
-  const voting = mvpInfo({ mvp_vote_status: 'open' }, { voteCount: 17, voters: 24 });
-  assert.deepEqual([voting.kind, voting.count, voting.pct], ['voting', 17, 71]);
-  assert.equal(mvpInfo({ mvp_vote_status: 'open' }, { voteCount: null, voters: 24 }).count, null, '7단계 전이면 인원 모름');
-  assert.equal(mvpInfo({ mvp_vote_status: 'none' }).kind, 'none');
 });
 
 test('sizeParam: 40~150% 사이로', () => {

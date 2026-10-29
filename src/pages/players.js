@@ -17,7 +17,7 @@ startPublic('players', async (main) => {
         ${avatar(p)}
         <span style="display: grid; min-width: 0; gap: 4px">
           <span class="name-line"><span class="name">${p.name}</span>${p.isLive ? liveBadge(true) : ''}</span>
-          <span class="meta">${tierChip(p.tier, 'rot')}<span class="role">${p.role}</span></span>
+          <span class="meta">${tierChip(p.tier, 'rot')}${p.roundMvp ? html`<span class="chip warn plain" style="font-size: 12px; padding: 0 8px" title="디스코드 라운드 MVP 투표로 뽑힌 횟수">MVP ${p.roundMvp}회</span>` : ''}<span class="role">${p.role}</span></span>
         </span>
       </a>
       ${most.length ? html`<div class="most">${most.map((m) => html`<span>${m}</span>`)}</div>` : ''}

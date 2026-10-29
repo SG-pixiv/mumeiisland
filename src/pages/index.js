@@ -61,7 +61,6 @@ startPublic('home', async (main) => {
   const recentTop = recent ? recent.standings.slice().sort((a, b) => a.standing - b.standing).slice(0, 3) : [];
   const recentCard = html`<section class="card" style="flex: 1 1 460px" aria-labelledby="recent-title">
     <div class="card-head"><h2 id="recent-title">최근 내전 결과</h2>${recent ? html`<span class="muted" style="font-size: 13px; font-weight: 600">${dateKo(recent.event.starts_at, false)} · ${recent.roundNos.length}라운드 누적</span>` : ''}</div>
-    ${recent?.event.mvp_player_id && byId.get(recent.event.mvp_player_id) ? html`<span class="chip warn" style="justify-self: start; font-family: var(--head); font-size: 15px; transform: rotate(-1.5deg)">지난 내전 MVP · ${byId.get(recent.event.mvp_player_id).name}</span>` : ''}
     ${recent
       ? html`<ol style="list-style: none; margin: 0; padding: 0; display: grid; gap: 10px">
           ${recentTop.map((s) => html`<li style="display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 14px; align-items: center; background: var(--soft); border-radius: 20px; padding: 12px 16px">
@@ -77,13 +76,13 @@ startPublic('home', async (main) => {
   const rankingCard = html`<section class="card" style="flex: 1 1 520px" aria-labelledby="rank-title">
     <div class="card-head"><h2 id="rank-title">시즌 ${season} 내전 랭킹</h2><span class="muted" style="font-size: 13px; font-weight: 600">평균 합계점수 순 · ${minGames}판 이상</span></div>
     ${ranked.length
-      ? html`<div class="table-wrap"><table class="data" style="min-width: 520px">
-          <thead><tr><th>#</th><th>선수</th><th class="r">내전 경기</th><th class="r">내전 승률</th><th class="r">평균 TK</th><th class="r">평균 점수</th></tr></thead>
+      ? html`<div class="table-wrap"><table class="data" style="min-width: 600px">
+          <thead><tr><th>#</th><th>선수</th><th class="r">내전 경기</th><th class="r">내전 승률</th><th class="r">평균 TK</th><th class="r">라운드 MVP</th><th class="r">평균 점수</th></tr></thead>
           <tbody>${ranked.map((p, i) => html`<tr>
             <td><span class="medal sm ${medalClass(i + 1)}">${i + 1}</span></td>
             <td><a href="/player?id=${p.id}" class="flex" style="color: var(--ink); text-decoration: none; flex-wrap: nowrap">${tierChip(p.tier)}<b>${p.name}</b></a></td>
             <td class="r">${p.season.games}</td><td class="r">${pct(p.season.wins, p.season.games)}</td>
-            <td class="r">${num(p.season.avgTk, 1)}</td><td class="r">${score(p.season.avgTotal)}</td>
+            <td class="r">${num(p.season.avgTk, 1)}</td><td class="r">${p.roundMvp ? html`<span class="chip warn plain" style="font-size: 12px; padding: 0 8px">${p.roundMvp}회</span>` : html`<span class="muted">-</span>`}</td><td class="r">${score(p.season.avgTotal)}</td>
           </tr>`)}</tbody></table></div>`
       : html`<p class="empty">내전 기록이 쌓이면 랭킹이 생겨요!</p>`}
   </section>`;

@@ -44,7 +44,6 @@ startPublic('matches', async (main) => {
                   ? html`<span style="flex: 2 1 340px; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; background: var(--soft); border-radius: 20px; padding: 10px 14px">
                       <span class="medal m1" style="width: 40px; height: 40px; font-size: 18px">1</span>
                       <span style="flex: 1 1 180px; min-width: 0; display: grid"><span style="font-family: var(--head); font-size: 17px">우승 팀 ${m.winner.team_no} · <span class="num">${score(m.winner.total)}점</span></span><span class="muted" style="font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">${m.winnerMembers.map((w) => w.name).join(' · ')}</span></span>
-                      ${m.mvp ? html`<span class="chip warn plain" style="font-family: var(--head)">MVP ${m.mvp.name}</span>` : ''}
                     </span>`
                   : ''}
                 <span aria-hidden="true" style="flex: none; font-family: var(--head); font-size: 22px; color: var(--pink-ink)">→</span>

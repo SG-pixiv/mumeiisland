@@ -72,7 +72,7 @@ client.once(Events.ClientReady, async (c) => {
   tick();
   setInterval(tick, cfg.refreshMinutes * 60_000);
 
-  // 30초마다: 라운드 결과 자동 공지(웹에서 확정하면) · 참가 공지 자동 게시 · 지운 내전의 메시지 정리
+  // 30초마다: 라운드 결과 공지 + 라운드 MVP 투표 열기 · 참가 공지 자동 게시 · 투표 마감 · 끝난 내전 · 지운 내전 메시지 정리
   if (!channelsOf(store, cfg.guildId).announce) log.warn('공지 채널이 아직 없어요. 디스코드에서 /채널설정 공지 를 해 주세요 (참가 공지 · 라운드 결과 자동 게시가 꺼져 있어요)');
   let busy = false;
   const results = async () => {
@@ -83,6 +83,12 @@ client.once(Events.ClientReady, async (c) => {
     // 참가 공지 자동 게시: 모집 중이 되면 바로 · 시작 24시간 전에 한 번 더
     try { const n = await router.autoAnnounce(); if (n) log.info(`참가 공지 ${n}개를 자동으로 올렸어요`); }
     catch (e) { log.warn(`[자동 공지] ${e?.message ?? e}`); }
+    // 라운드 MVP 투표 30분 지나면 마감 · 발표 · 투표 메시지 지우기
+    try { const n = await router.closeDueVotes(); if (n) log.info(`라운드 MVP 투표 ${n}개를 마감했어요`); }
+    catch (e) { log.warn(`[라운드 MVP] ${e?.message ?? e}`); }
+    // 끝난 내전의 참가 공지 · 투표 메시지 지우기 (라운드 결과 · MVP 발표는 남겨요)
+    try { const n = await router.cleanupEnded(); if (n) log.info(`끝난 내전의 참가 공지 · 투표 메시지 ${n}개를 지웠어요`); }
+    catch (e) { log.warn(`[내전 끝 정리] ${e?.message ?? e}`); }
     // 웹에서 지운 내전의 디스코드 메시지도 지우기
     try { const n = await router.cleanupDeleted(); if (n) log.info(`지운 내전의 디스코드 메시지 ${n}개를 지웠어요`); }
     catch (e) { log.warn(`[메시지 정리] ${e?.message ?? e}`); }

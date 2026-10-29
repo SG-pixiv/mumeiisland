@@ -4,6 +4,7 @@
 //   운영진 = 디스코드 서버 관리자 또는 무명섬 관리자 (소유자가 /관리자추가 · 웹에서 추가한 사람 포함)
 //   그래서 서버 관리자 권한이 없어도 무명섬 관리자면 다 쓸 수 있어요
 const eventOption = (description = '비워 두면 가장 가까운 내전') => ({ type: 3, name: '내전', description, required: false, autocomplete: true });
+const roundOption = (description) => ({ type: 4, name: '라운드', description, required: false, min_value: 1, max_value: 30 });
 
 export const commands = [
   {
@@ -17,10 +18,10 @@ export const commands = [
   { name: '내전공지', description: '참가 버튼이 달린 내전 공지를 공지 채널에 올려요 (운영진)', options: [eventOption()] },
   { name: '소개공지', description: '무명섬 소개 공지(그림 + 사이트 버튼)를 이 채널에 올려요. 창에서 제목 · 내용을 고쳐요 (운영진)' },
   {
-    name: 'mvp', description: 'MVP 투표 (운영진)',
+    name: 'mvp', description: '라운드 MVP 투표 (운영진). 결과를 확정하면 자동으로 열리고 30분 뒤 자동 마감돼요',
     options: [
-      { type: 1, name: '시작', description: 'MVP 투표를 이 채널에 열어요', options: [eventOption('비워 두면 가장 최근 내전')] },
-      { type: 1, name: '마감', description: '투표를 마감하고 MVP 를 발표해요 (공동 1위는 추첨)', options: [eventOption('비워 두면 투표 중인 내전')] }
+      { type: 1, name: '시작', description: '라운드 MVP 투표를 열거나 다시 열어요', options: [eventOption('비워 두면 가장 최근 내전'), roundOption('비워 두면 가장 최근에 확정한 라운드')] },
+      { type: 1, name: '마감', description: '30분을 기다리지 않고 바로 마감 · 발표해요 (공동 1위는 추첨)', options: [eventOption('비워 두면 투표 중인 라운드'), roundOption('비워 두면 투표 중인 라운드')] }
     ]
   },
   {

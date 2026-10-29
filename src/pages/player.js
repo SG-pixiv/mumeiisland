@@ -42,6 +42,7 @@ startPublic('players', async (main) => {
       <div class="tile"><span class="label">평균 순위</span><span class="value">${num(s.avgRank, 1)}</span><span class="sub">팀 순위 기준</span></div>
       <div class="tile"><span class="label">평균 TK</span><span class="value">${num(s.avgTk, 1)}</span><span class="sub">팀 킬</span></div>
       <div class="tile"><span class="label">평균 합계점수</span><span class="value">${score(s.avgTotal)}</span><span class="sub">팀 라운드 점수</span></div>
+      <div class="tile"><span class="label">라운드 MVP</span><span class="value">${p.roundMvp}회</span><span class="sub">디스코드 투표 · 전체 기간</span></div>
     </div>`;
   };
 

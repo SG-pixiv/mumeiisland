@@ -1,8 +1,8 @@
 // 방송 진행판: 라운드 시작 · 끝 버튼 (대시보드 맨 위 카드 · OBS 조종판에서 같이 써요)
 import { html, mount, on, toast, errorText } from '../lib/dom.js';
 import { select, rpc } from '../lib/db.js';
-import { pickLiveEvent, liveOf, nextRoundNo, liveAction, mvpInfo } from '../lib/live.js';
-import { liveReady, voteCount } from '../lib/live-api.js';
+import { pickLiveEvent, liveOf, nextRoundNo, liveAction } from '../lib/live.js';
+import { liveReady } from '../lib/live-api.js';
 import { dateKo, timeKo, dateTimeShort } from '../lib/fmt.js';
 
 const hhmm = (ts) => { const d = new Date(ts); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
@@ -18,17 +18,25 @@ async function load(pickedId) {
   const event = (pickedId && events.find((e) => e.id === pickedId)) || auto;
   if (!event) return { ready, event: null, choices: [] };
   const choices = events.filter((e) => e.status !== 'done' || liveOf(e).state !== 'idle' || e.id === event.id);
-  const mvpOpen = event.mvp_vote_status === 'open' && !event.mvp_player_id;
-  const [parts, votes] = await Promise.all([
-    mvpOpen ? select('event_participants', { eq: { event_id: event.id } }) : [],
-    mvpOpen ? voteCount(event.id) : null
-  ]);
   const mine = rounds.filter((r) => r.event_id === event.id);
   return {
     ready, event, choices, rounds: mine,
     lastUpload: rounds.map((r) => r.uploaded_at).filter(Boolean).sort().pop() || null,
-    mvp: mvpInfo(event, { names: new Map(players.map((p) => [p.id, p.display_name])), voteCount: votes, voters: parts.length })
+    vote: await roundVote(event.id, new Map(players.map((p) => [p.id, p.display_name])))
   };
+}
+
+/** 라운드 MVP 투표 상태 (디스코드에서만 해요 · 9단계 SQL 전이면 null) */
+async function roundVote(eventId, names) {
+  const rows = await select('rounds', { eq: { event_id: eventId, status: 'confirmed' }, columns: 'id, round_no, mvp_player_id, mvp_vote_status, mvp_vote_closes_at' }).catch(() => null);
+  if (!rows) return null;
+  const open = rows.filter((r) => r.mvp_vote_status === 'open').sort((a, b) => a.round_no - b.round_no)[0];
+  if (open) {
+    const votes = await select('round_mvp_votes', { eq: { round_id: open.id }, columns: 'voter_player_id' }).catch(() => []);
+    return { kind: 'open', round: open.round_no, closes: open.mvp_vote_closes_at, count: votes.length };
+  }
+  const last = rows.filter((r) => r.mvp_player_id).sort((a, b) => b.round_no - a.round_no)[0];
+  return last ? { kind: 'done', round: last.round_no, name: names.get(last.mvp_player_id) || '알 수 없음' } : { kind: 'none' };
 }
 
 function stateLine(ev) {
@@ -38,10 +46,11 @@ function stateLine(ev) {
   return html`<span class="live-state">꺼짐</span><small class="muted">오버레이에 라운드 표시가 안 떠요</small>`;
 }
 
-function mvpLine(m) {
-  if (m.kind === 'done') return html`<b>MVP 발표</b> · ${m.name}${m.note ? ` · ${m.note}` : ''}`;
-  if (m.kind === 'voting') return html`<b>MVP 투표 중</b> · ${m.count === null ? '인원 확인 전' : `${m.count} / ${m.voters}명 투표`}`;
-  return html`<b>MVP 투표 전</b> · 디스코드에서 /mvp 시작`;
+function mvpLine(v) {
+  if (!v) return html`<b>라운드 MVP</b> · DB 9단계(20261029020000_round_mvp.sql)를 실행하면 결과를 확정할 때 디스코드 투표가 자동으로 열려요`;
+  if (v.kind === 'open') return html`<b>${v.round}라운드 MVP 투표 중</b> · ${v.count}명 투표${v.closes ? ` · ${hhmm(v.closes)} 자동 마감` : ''}`;
+  if (v.kind === 'done') return html`<b>${v.round}라운드 MVP</b> · ${v.name}`;
+  return html`<b>라운드 MVP</b> · 결과를 확정하면 디스코드 투표가 자동으로 열리고 30분 뒤 마감돼요`;
 }
 
 function view(st, { compact }) {
@@ -72,7 +81,7 @@ function view(st, { compact }) {
     <div class="live-now">${stateLine(ev)}</div>
     <div class="live-buttons">${buttons}</div>
     <p class="live-hint">게임 결과 파일이 올라오면 자동으로 "끝"으로 바뀌어요${d.lastUpload ? ` · 마지막 업로드 ${dateTimeShort(d.lastUpload)}` : ''}</p>
-    <p class="live-mvp">${mvpLine(d.mvp)}</p>
+    <p class="live-mvp">${mvpLine(d.vote)}</p>
     ${compact ? '' : html`<p class="live-hint" style="margin: 0"><a href="/admin/live" target="_blank" rel="noopener">OBS 조종판 · 오버레이 주소</a></p>`}
   </div>`;
 }

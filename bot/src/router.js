@@ -1,7 +1,7 @@
 // 디스코드에서 온 명령어 · 버튼 · 선택 메뉴를 처리해요.
 // discord.js 에 묶이지 않게 메시지 보내기 · 고치기는 바깥(index.js)에서 넣어 줘요 → 가짜로 테스트할 수 있어요.
 
-import { parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage } from './logic.js';
+import { parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage, eventEnded } from './logic.js';
 import { memoryStore, channelsOf, setChannels } from './store.js';
 
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
@@ -33,7 +33,8 @@ export function createRouter({
     if (!m) return;
     const event = await service.eventById(eventId);
     if (!event) return;
-    const payload = kind === 'signup' ? await service.signupPayload(event) : await service.mvpPayload(event);
+    if (kind !== 'signup') return;   // 예전 내전 MVP 투표 메시지는 더 안 고쳐요
+    const payload = await service.signupPayload(event);
     try {
       await editMessage(m.channel_id, m.message_id, payload);
     } catch (e) {
@@ -105,6 +106,13 @@ export function createRouter({
         if (res) {
           try { const m = await sendMessage(channel, res.payload); remember(res.event.id, 'result', m?.channelId ?? channel, m?.id); posted++; }
           catch (e) { log.warn(`[결과 공지] ${res.event.title} ${r.round_no}라운드를 올리지 못했어요: ${e?.message ?? e}`); if (!GONE.has(e?.code)) return posted; }
+          // 처음 확정된 라운드면 MVP 투표도 바로 열어요 (30분 뒤 자동 마감)
+          if (!done[r.id]) {
+            try {
+              const v = await openVote(r.id, channel);
+              if (!v.ok && !v.already) log.info(`[라운드 MVP] ${res.event.title} ${r.round_no}라운드 투표를 열지 않았어요: ${v.text}`);
+            } catch (e) { log.warn(`[라운드 MVP] 투표를 열지 못했어요: ${e?.message ?? e}`); }
+          }
         }
       }
       done[r.id] = r.confirmed_at;   // 공지 채널이 없을 때도 표시해 둬요 (나중에 채널을 정해도 예전 판이 한꺼번에 올라가지 않게)
@@ -136,12 +144,13 @@ export function createRouter({
     }
 
     if (i.isStringSelectMenu()) {
-      const eventId = parseId(i.customId, 'mvp');
-      if (!eventId) return;
+      if (parseId(i.customId, 'mvp')) return i.reply(eph('이 투표는 끝났어요. 이제 MVP 는 라운드마다 뽑아요!'));   // 예전 내전 MVP 투표
+      const roundId = parseId(i.customId, 'rmvp');
+      if (!roundId) return;
       await i.deferReply({ flags: EPHEMERAL });
-      const r = await service.vote({ discordId: i.user.id, eventId, candidateId: i.values?.[0] });
+      const r = await service.voteRound({ discordId: i.user.id, roundId, candidateId: i.values?.[0] });
       await i.editReply({ content: r.text });
-      if (r.ok) await refresh(eventId, 'mvp');
+      if (r.ok) await refreshVote(roundId);
       return;
     }
 
@@ -205,22 +214,22 @@ export function createRouter({
       case 'mvp': {
         if (!(await staffOnly(i))) return;
         await i.deferReply({ flags: EPHEMERAL });
+        const roundNo = i.options.getInteger?.('라운드') ?? null;
         if (i.options.getSubcommand() === '시작') {
-          const r = await service.mvpStart({ eventId });
-          if (!r.ok) return i.editReply({ content: r.text });
+          const round = await service.pickVoteRound({ eventId, roundNo });
+          if (!round) return i.editReply({ content: '투표를 열 라운드가 없어요. 결과 검토에서 라운드를 먼저 확정해 주세요.' });
           const ch = announceChannel(i);
-          await post(ch, r.event.id, 'mvp', r.payload, r.old);
-          return i.editReply({ content: `**${r.event.title}** MVP 투표를 ${where(ch, i)}에 열었어요!${r.reopened ? ' (마감했던 투표를 다시 열었어요. 이전 표는 그대로예요)' : ''} 마감은 \`/mvp 마감\`.` });
+          const r = await openVote(round.id, ch, { reopen: true });
+          if (!r.ok) return i.editReply({ content: r.text });
+          return i.editReply({ content: `**${r.event.title} ${r.round.round_no}라운드** MVP 투표를 ${where(ch, i)}에 열었어요!${r.reopened ? ' (마감했던 투표를 다시 열었어요. 이전 표는 그대로예요)' : ''} 30분 뒤 자동으로 마감돼요. 바로 마감하려면 \`/mvp 마감\`.` });
         }
-        const r = await service.mvpClose({ eventId });
+        const round = await service.pickVoteRound({ eventId, roundNo, open: true });
+        if (!round) return i.editReply({ content: '지금 투표 중인 라운드가 없어요.' });
+        const r = await closeVote(round.id);
         if (!r.ok) return i.editReply({ content: r.text });
-        const ch = announceChannel(i);
-        const shown = await sendMessage(ch, r.announce);
-        remember(r.event.id, 'mvp-result', shown?.channelId ?? ch, shown?.id);
-        if (r.old) {
-          try { await editMessage(r.old.channel_id, r.old.message_id, r.payload); } catch { /* 투표 메시지가 지워졌어도 괜찮아요 */ }
-        }
-        return i.editReply({ content: `${where(ch, i)}에 발표했어요! MVP는 **${r.mvpName}**${r.result.drawn ? ' (공동 1위 추첨)' : ''}. 무명섬 내전 기록에도 저장됐어요.` });
+        if (r.cancelled) return i.editReply({ content: '그 라운드는 확정이 취소돼서 투표를 접었어요.' });
+        if (r.empty) return i.editReply({ content: `**${r.event.title} ${r.round.round_no}라운드** 투표를 마감했어요. 아무도 투표하지 않아서 MVP 는 없어요.` });
+        return i.editReply({ content: `${where(r.channel, i)}에 발표했어요! **${r.round.round_no}라운드** MVP는 **${r.mvpName}**${r.result.drawn ? ' (공동 1위 추첨)' : ''}. 무명섬 기록에도 저장됐어요.` });
       }
       case '채널설정': {
         if (!(await staffOnly(i))) return;
@@ -332,6 +341,106 @@ export function createRouter({
     }
   }
 
+  // ── 라운드 MVP 투표
+
+  /** 투표를 열고 그 채널에 투표 메시지를 올려요 */
+  async function openVote(roundId, channel, { reopen = false } = {}) {
+    const r = await service.openRoundVote(roundId, { reopen });
+    if (!r.ok) return r;
+    const old = r.round.mvp_message_id ? { c: r.round.mvp_channel_id, m: r.round.mvp_message_id } : null;
+    const msg = await sendMessage(channel, r.payload);
+    remember(r.event.id, 'round-vote', msg.channelId ?? channel, msg.id);
+    await service.saveRoundVoteMessage(r.round.id, msg.channelId ?? channel, msg.id);
+    if (old) await dropPost(old.c, old.m);   // 다시 열었으면 예전 투표 메시지는 지워요
+    return { ...r, channel };
+  }
+
+  /** 표가 들어오면 투표 메시지의 인원을 바로 고쳐요 */
+  async function refreshVote(roundId) {
+    const round = await service.roundById(roundId);
+    if (!round?.mvp_message_id) return;
+    try {
+      await editMessage(round.mvp_channel_id, round.mvp_message_id, await service.roundVotePayload(round));
+    } catch (e) {
+      if (GONE.has(e?.code)) await service.saveRoundVoteMessage(round.id, null, null);
+      else log.warn(`[라운드 MVP] 투표 메시지를 고치지 못했어요: ${e?.message ?? e}`);
+    }
+  }
+
+  /** 봇이 올린 메시지 하나 지우고 잊기 (이미 없으면 그냥 잊어요) */
+  async function dropPost(channelId, messageId) {
+    if (!channelId || !messageId) return false;
+    let ok = false;
+    try { await deleteMessage(channelId, messageId); ok = true; }
+    catch (e) { if (!GONE.has(e?.code) && !NO_ACCESS.has(e?.code)) log.warn(`[메시지 정리] 지우지 못했어요: ${e?.message ?? e}`); }
+    store.update({ posts: (store.get().posts ?? []).filter((p) => p.m !== messageId) });
+    return ok;
+  }
+
+  /** 마감 → 발표 올리고 투표 메시지는 지워요 */
+  async function closeVote(roundId) {
+    const r = await service.closeRoundVote(roundId);
+    if (!r.ok) return r;
+    const voteMsg = r.round.mvp_channel_id && r.round.mvp_message_id ? [r.round.mvp_channel_id, r.round.mvp_message_id] : null;
+    let channel = channelsOf(store, guildId).announce || voteMsg?.[0] || null;
+    if (r.announce && channel) {
+      const m = await sendMessage(channel, r.announce);
+      remember(r.event.id, 'mvp-result', m?.channelId ?? channel, m?.id);
+      channel = m?.channelId ?? channel;
+    }
+    if (voteMsg) {
+      await dropPost(...voteMsg);
+      await service.saveRoundVoteMessage(r.round.id, null, null);
+    }
+    return { ...r, channel };
+  }
+
+  /** 30분이 지난 투표 자동 마감 (30초마다) */
+  let voteBusy = false;
+  async function closeDueVotes() {
+    if (voteBusy) return 0;
+    voteBusy = true;
+    try {
+      let n = 0;
+      for (const round of await service.dueRoundVotes()) {
+        try { const r = await closeVote(round.id); if (r.ok && !r.cancelled) n++; }
+        catch (e) { log.warn(`[라운드 MVP] ${round.round_no}라운드 투표를 마감하지 못했어요: ${e?.message ?? e}`); }
+      }
+      return n;
+    } finally {
+      voteBusy = false;
+    }
+  }
+
+  /**
+   * 내전이 끝나면 참가 공지 · 투표 메시지를 지워요 (30초마다). 라운드 결과 · MVP 발표는 남겨요
+   * 끝 = 상태 완료 · 시작 12시간 뒤 · 예정 라운드를 다 확정하고 투표도 다 끝남
+   */
+  let endBusy = false;
+  async function cleanupEnded() {
+    if (endBusy) return 0;
+    endBusy = true;
+    try {
+      const { events, rounds } = await service.recentEventsWithRounds();
+      const cleaned = { ...(store.get().ended ?? {}) };
+      let removed = 0;
+      for (const e of events) {
+        if (cleaned[e.id] || !eventEnded(e, rounds, now())) continue;
+        const mine = (store.get().posts ?? []).filter((p) => p.e === e.id && (p.k === 'signup' || p.k === 'round-vote' || p.k === 'mvp'));
+        for (const p of mine) if (await dropPost(p.c, p.m)) removed++;
+        await service.dropMessage(e.id, 'signup');
+        await service.dropMessage(e.id, 'mvp');
+        cleaned[e.id] = new Date(now()).toISOString();
+      }
+      // 오래된 기록은 잊어요
+      const keep = Object.fromEntries(Object.entries(cleaned).sort((a, b) => String(b[1]).localeCompare(String(a[1]))).slice(0, 200));
+      store.update({ ended: keep });
+      return removed;
+    } finally {
+      endBusy = false;
+    }
+  }
+
   /**
    * 웹에서 지운 내전의 디스코드 메시지 지우기 (30초마다)
    * 참가 공지(하루 전 공지 포함) · MVP 투표 · MVP 발표 · 라운드 결과
@@ -378,5 +487,5 @@ export function createRouter({
     }
   }
 
-  return { handle, refresh, refreshAll, announceResults, autoAnnounce, cleanupDeleted };
+  return { handle, refresh, refreshAll, announceResults, autoAnnounce, cleanupDeleted, closeDueVotes, cleanupEnded };
 }

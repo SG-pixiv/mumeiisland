@@ -52,7 +52,6 @@ startAdmin('schedule', async (main) => {
           <label class="field">공지 메모 <textarea name="memo" rows="2">${f.memo}</textarea></label>
           <div class="form-grid">
             <label class="radio"><input type="checkbox" name="teamsPublic" ${f.teamsPublic ? 'checked' : ''}> 팀 편성을 공개 페이지에 보여주기</label>
-            <label class="field">MVP (디스코드 투표 결과) <select name="mvp"><option value="">아직 없음</option>${players.map((p) => html`<option value="${p.id}" ${f.mvp === p.id ? 'selected' : ''}>${p.name}</option>`)}</select></label>
           </div>
           ${f.id ? html`<div class="stack" style="gap: 8px"><span style="font-family: var(--head); font-size: 17px">참가자 <b class="num">${joined.length} / ${f.max}</b></span>
             <div class="flex" style="gap: 6px">${joined.map((p) => html`<span class="chip" style="padding: 1px 4px">${tierDot(p.tier)}${p.name}<button type="button" class="btn text" data-out="${p.id}" aria-label="${p.name} 빼기" style="min-height: 26px; padding: 0 6px; color: var(--pink-ink)">×</button></span>`)}</div>
@@ -89,7 +88,7 @@ startAdmin('schedule', async (main) => {
       starts_at: startsAt.toISOString(), season: Number(fd.get('season')) || 1, format: fd.get('format'),
       planned_rounds: Number(fd.get('rounds')) || 4, max_players: Number(fd.get('max')) || 24, status: fd.get('status'),
       setting_code: fd.get('code').trim() || null, memo: fd.get('memo').trim() || null,
-      teams_public: fd.get('teamsPublic') === 'on', mvp_player_id: fd.get('mvp') || null
+      teams_public: fd.get('teamsPublic') === 'on'
     };
     state.busy = true; draw();
     try {

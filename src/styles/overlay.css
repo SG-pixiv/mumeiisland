@@ -59,15 +59,7 @@ html, body { margin: 0; background: transparent; color: var(--ink); font-family:
 .ov-card small { font-size: 18px; font-weight: 800; }
 .ov-card strong { font-family: var(--head); font-weight: 400; font-size: 40px; line-height: 1.15; white-space: nowrap; }
 .ov-card.leader { background: var(--pink); box-shadow: 0 8px 0 var(--sky); padding: 18px 30px; gap: 2px; }
-.ov-card.mvp { background: var(--t3s); flex-direction: row; align-items: center; gap: 18px; padding: 14px 30px 14px 16px; }
-.ov-card.mvp .trophy { width: 80px; height: 80px; flex: 0 0 auto; border-radius: 50%; background: #FFFFFF; border: 3px solid var(--ink); display: grid; place-items: center; }
-.ov-card.mvp small { color: var(--t3); }
-.ov-card.mvp strong { font-size: 44px; line-height: 1.1; }
 .ov-card .sub { font-size: 18px; font-weight: 800; color: var(--muted); }
-.ov-card.vote { background: #FFFFFF; gap: 6px; }
-.ov-card.vote small { display: flex; align-items: center; gap: 10px; color: var(--pink-ink); }
-.ov-bar { display: block; width: 340px; height: 14px; border-radius: 999px; background: var(--soft); border: 2px solid var(--ink); overflow: hidden; }
-.ov-bar span { display: block; height: 100%; background: var(--pink); }
 .ov-table { background: #FFFFFF; border: 4px solid var(--ink); border-radius: 30px; box-shadow: 0 8px 0 var(--pink); padding: 14px 28px; display: flex; flex-direction: column; }
 .ov-rgrid { display: grid; grid-template-columns: 70px 300px minmax(0, 1fr) 80px 120px 120px 90px 120px 150px; column-gap: 14px; align-items: center; padding: 11px 0; border-bottom: 2px solid var(--soft); }
 .ov-rgrid.head { font-size: 16px; font-weight: 800; color: var(--muted); padding: 8px 0 10px; border-bottom: 2px dashed var(--line); }
@@ -86,6 +78,5 @@ html, body { margin: 0; background: transparent; color: var(--ink); font-family:
 .ov-tier.t1 { background: var(--t1s); color: var(--t1); }
 .ov-tier.t2 { background: var(--t2s); color: var(--t2); }
 .ov-tier.t3 { background: var(--t3s); color: var(--t3); }
-.ov-mvp-tag { font-family: var(--body); font-size: 13px; font-weight: 800; background: var(--t3s); color: var(--t3); border: 2px solid var(--ink); border-radius: 999px; padding: 1px 8px; }
 .ov-note { font-size: 18px; font-weight: 700; color: var(--muted); }
 .ov-wait { flex: 1 1 auto; display: grid; place-items: center; font-family: var(--head); font-size: 48px; color: var(--muted); }

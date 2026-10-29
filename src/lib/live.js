@@ -145,32 +145,6 @@ export function buildRoundResult({ scores = [], roundNo, members = new Map(), la
   return { roundNo, rows, leader };
 }
 
-/**
- * MVP 표시
- * done: 발표됨 · voting: 투표 중 (count / voters) · none: 없음
- * teamOf: 선수 id → 팀 이름
- */
-export function mvpInfo(event, { names = new Map(), teamOf = () => '', voteCount = null, voters = 0 } = {}) {
-  if (!event) return { kind: 'none' };
-  if (event.mvp_player_id) {
-    const res = event.mvp_vote_result || {};
-    const votes = res.counts?.[event.mvp_player_id] ?? null;
-    const drawn = !!res.drawn && (res.tied?.length || 0) > 1;
-    const team = teamOf(event.mvp_player_id) || '';
-    const total = res.votes ?? null;
-    const note = drawn && votes !== null
-      ? `${votes}표 공동 1위 · 추첨으로 뽑혔어요`
-      : [team, votes !== null && total ? `${total}표 중 ${votes}표` : ''].filter(Boolean).join(' · ');
-    return { kind: 'done', id: event.mvp_player_id, name: names.get(event.mvp_player_id) || '알 수 없음', team, votes, total, drawn, note };
-  }
-  if (event.mvp_vote_status === 'open') {
-    const count = voteCount === null || voteCount === undefined ? null : Number(voteCount);
-    const pct = count !== null && voters ? Math.min(100, Math.round((count / voters) * 100)) : 0;
-    return { kind: 'voting', count, voters, pct };
-  }
-  return { kind: 'none' };
-}
-
 /** 주소의 ?size=60 → 0.6 (40~150%) */
 export function sizeParam(value, fallback = 1) {
   const n = Number(value);

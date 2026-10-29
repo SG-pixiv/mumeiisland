@@ -155,14 +155,24 @@ function build() {
   const bot_status = [{ id: 1, bot_tag: '무명섬#1234', guild_id: 'demo', last_seen_at: new Date(Date.now() - 2 * 60000).toISOString() }];
   const bot_messages = [];
   const mvp_votes = [];
-  events.find((e) => e.id === E(1)).mvp_vote_result = { counts: { [T(1)]: 4, [T(5)]: 4, [T(9)]: 2 }, tied: [T(1), T(5)], picked: T(1), drawn: true, votes: 10 };
-  events.find((e) => e.id === E(2)).mvp_vote_result = { counts: { [T(2)]: 6, [T(6)]: 3, [T(10)]: 2 }, tied: [T(2)], picked: T(2), drawn: false, votes: 11 };
-  events.forEach((e) => { e.mvp_vote_status = e.mvp_vote_result ? 'closed' : 'none'; });
+  events.forEach((e) => { e.mvp_vote_status = 'none'; e.mvp_player_id = null; e.mvp_vote_result = null; });   // 내전 MVP 는 더 안 써요
+  // 라운드 MVP (9단계): 확정된 라운드마다 그 판에 뛴 선수 중 한 명, 공동 1위 추첨도 하나
+  const round_mvp_votes = [];
+  rounds.forEach((r) => Object.assign(r, { mvp_player_id: null, mvp_vote_status: 'none', mvp_vote_closes_at: null, mvp_vote_result: null, mvp_channel_id: null, mvp_message_id: null }));
+  rounds.filter((r) => r.status === 'confirmed').forEach((r, i) => {
+    const inRound = round_players.filter((p) => p.round_id === r.id && p.player_id);
+    const pick = inRound[(i * 5) % Math.max(1, inRound.length)]?.player_id;
+    if (!pick) return;
+    const votes = 7 + (i % 4);
+    const drawn = i % 5 === 3;
+    const top = drawn ? Math.floor(votes / 2) : 4 + (i % 3);
+    Object.assign(r, { mvp_player_id: pick, mvp_vote_status: 'closed', mvp_vote_result: { counts: { [pick]: top }, tied: drawn ? [pick, 'x'] : [pick], picked: pick, drawn, votes } });
+  });
   // 방송 오버레이 (7단계): 10월 24일 내전 4라운드 결과 파일이 올라와서 "끝"이 된 상태
   events.forEach((e) => { e.live_state = 'idle'; e.live_round = null; e.live_changed_at = null; });
   Object.assign(events.find((e) => e.id === E(2)), { live_state: 'ended', live_round: 4, live_changed_at: iso('2026-10-24T23:12:00+09:00') });
 
-  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes };
+  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes, round_mvp_votes };
 }
 
 export const tables = build();
@@ -235,7 +245,14 @@ function vPlayerStats() {
   });
 }
 
+function vPlayerRoundMvp() {
+  const n = new Map();
+  tables.rounds.filter((r) => r.status === 'confirmed' && r.mvp_player_id).forEach((r) => n.set(r.mvp_player_id, (n.get(r.mvp_player_id) || 0) + 1));
+  return [...n].map(([player_id, round_mvp]) => ({ player_id, round_mvp }));
+}
+
 export const views = {
+  v_player_round_mvp: vPlayerRoundMvp,
   v_round_team_scores: vRoundTeamScores,
   v_event_standings: vEventStandings,
   v_player_rounds: vPlayerRounds,
