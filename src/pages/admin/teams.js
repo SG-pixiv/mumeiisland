@@ -4,7 +4,7 @@ import { select, insert, update, upsert, remove } from '../../lib/db.js';
 import { loadEvents, loadPlayers, nextEvent } from '../../lib/api.js';
 import { num, dateKo, timeKo, FORMAT_LABEL, tierDot, lockIcon } from '../../lib/fmt.js';
 import {
-  TIERS, MAX_TEAMS, scoreTable, teamPlan, emptyTeams, teamStats, balance, poolFrom, signature,
+  TIERS, SLOTS, REST, MAX_TEAMS, scoreTable, teamPlan, emptyTeams, teamStats, balance, poolFrom, signature,
   draftSequence, draftTeams, captainOrderFromPrev
 } from '../../lib/balance.js';
 
@@ -54,6 +54,10 @@ startAdmin('teams', async (main) => {
   const scores = () => scoreTable(entrants());
   const valueFn = () => { const t = scores(); return (id) => t.get(id)?.value ?? 0; };
   const nameOf = (id) => players.get(id)?.name || '알 수 없음';
+  // 이번 내전에서의 티어 (팀 카드의 티어 점 색 · 저장할 때 slot_tier)
+  const tierIn = (id) => entrants().find((x) => x.id === id)?.tier ?? players.get(id)?.tier ?? 3;
+  // 자리에 들어갈 수 있는지: 1번 자리 = 1티어, 2 · 3번 자리 = 2 · 3티어 아무나
+  const fits = (tier, slot) => (slot === 1 ? tier === 1 : tier === 2 || tier === 3);
 
   // 지난 내전(이 내전보다 앞, 확정 기록이 있는 것)에서 각 선수의 팀 순위
   const prevInfo = () => {
@@ -87,7 +91,12 @@ startAdmin('teams', async (main) => {
     const rows = teamRows.filter((r) => tierOf.get(r.player_id) === r.slot_tier && r.team_no >= 1 && r.team_no <= Math.max(plan.teams, 1));
     if (!rows.length || !plan.teams) { state.arr = null; state.locks = new Set(); return; }
     const arr = emptyTeams(plan.teams);
-    rows.forEach((r) => { if (!arr[r.team_no - 1][r.slot_tier]) arr[r.team_no - 1][r.slot_tier] = r.player_id; });
+    // 팀장(1티어) → 1번 자리, 2 · 3티어 → 비어 있는 2 · 3번 자리 (티어 · 이름 순)
+    rows.slice().sort((a, b) => a.slot_tier - b.slot_tier || nameOf(a.player_id).localeCompare(nameOf(b.player_id), 'ko')).forEach((r) => {
+      const t = arr[r.team_no - 1];
+      const slot = r.slot_tier === 1 ? (t[1] ? null : 1) : REST.find((k) => !t[k]);
+      if (slot) t[slot] = r.player_id;
+    });
     state.arr = arr;
     state.locks = new Set(rows.filter((r) => r.locked).map((r) => r.player_id));
   };
@@ -98,9 +107,9 @@ startAdmin('teams', async (main) => {
     const plan = teamPlan(list);
     const tierOf = new Map(list.map((x) => [x.id, x.tier]));
     const arr = emptyTeams(plan.teams);
-    state.arr.forEach((t, i) => { if (i < plan.teams) TIERS.forEach((k) => { if (t[k] && tierOf.get(t[k]) === k) arr[i][k] = t[k]; }); });
+    state.arr.forEach((t, i) => { if (i < plan.teams) SLOTS.forEach((k) => { if (t[k] && tierOf.has(t[k]) && fits(tierOf.get(t[k]), k)) arr[i][k] = t[k]; }); });
     state.arr = plan.teams ? arr : null;
-    const placed = new Set(arr.flatMap((t) => TIERS.map((k) => t[k]).filter(Boolean)));
+    const placed = new Set(arr.flatMap((t) => SLOTS.map((k) => t[k]).filter(Boolean)));
     state.locks = new Set([...state.locks].filter((id) => placed.has(id)));
   };
 
@@ -123,7 +132,7 @@ startAdmin('teams', async (main) => {
     const sel = state.sel === id;
     const body = html`${tierDot(tier)}<span class="info"><b>${p?.name || '알 수 없음'}</b><small>${sc ? `${sc.estimated ? '≈ ' : ''}${num(sc.value)}점${sc.estimated ? ' (기록 없음 · 티어 평균)' : ''}` : ''}${extra ? ` · ${extra}` : ''}</small></span>`;
     return html`<span class="member ${lock ? 'locked' : ''}" style="${sel ? 'outline: 3px solid var(--sky-ink); outline-offset: 1px;' : ''}">
-      ${selectable ? html`<button type="button" data-swap="${id}" aria-pressed="${sel}" title="눌러서 고르고, 같은 티어의 다른 선수를 누르면 자리를 맞바꿔요" style="all: unset; display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; cursor: pointer">${body}</button>` : body}
+      ${selectable ? html`<button type="button" data-swap="${id}" aria-pressed="${sel}" title="눌러서 고르고, 다른 팀 선수를 누르면 자리를 맞바꿔요 (팀장끼리 · 2 · 3티어끼리)" style="all: unset; display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; cursor: pointer">${body}</button>` : body}
       ${lock !== null ? html`<button type="button" class="lock ${lock ? 'on' : ''}" data-lock="${id}" aria-pressed="${lock}" aria-label="${p?.name} ${lock ? '잠김 · 눌러서 풀기' : '풀림 · 눌러서 잠그기'}" title="${lock ? '잠김: 다시 돌려도 이 팀에 남아요' : '풀림: 다시 돌리면 자리가 바뀔 수 있어요'}">${lockIcon(lock)}</button>` : ''}
     </span>`;
   };
@@ -143,7 +152,7 @@ startAdmin('teams', async (main) => {
     return html`<section class="card"><div class="card-head"><h2>참가자 ${list.length}명</h2>
         <span class="flex" style="gap: 6px">${TIERS.map((t) => html`<span class="tier t${t}" style="padding: 2px 10px; font-size: 13px">${t}티어 <b class="num">${plan.count[t]}</b></span>`)}</span></div>
       ${plan.ok
-        ? html`<p class="notice" style="margin: 0">${plan.teams}팀(팀마다 1 · 2 · 3티어 한 명씩)을 만들 수 있어요.</p>`
+        ? html`<p class="notice" style="margin: 0">${plan.teams}팀을 만들 수 있어요. 팀마다 1티어 팀장 1명 + 2 · 3티어 중 아무나 2명이에요.</p>`
         : html`<p class="notice warn" style="margin: 0">${plan.problems.join(' · ')}. 참가자를 더하거나 빼고, 필요하면 아래에서 "이번 자리"를 바꿔 주세요.</p>`}
       ${collapsed ? html`<details><summary class="muted" style="cursor: pointer; font-weight: 700">참가자 목록 보기 · 고치기</summary><div class="stack" style="gap: 10px; margin-top: 10px">` : ''}
       <div class="grid" style="--min: 250px; gap: 8px">${list.map((x) => {
@@ -167,11 +176,11 @@ startAdmin('teams', async (main) => {
 
   const autoView = (list, plan) => {
     const arr = state.arr;
-    const placed = new Set(arr ? arr.flatMap((t) => TIERS.map((k) => t[k]).filter(Boolean)) : []);
+    const placed = new Set(arr ? arr.flatMap((t) => SLOTS.map((k) => t[k]).filter(Boolean)) : []);
     const waiting = list.filter((x) => !placed.has(x.id));
     return html`<section class="card ink stack" style="gap: 14px">
       <div class="card-head"><h2>자동 편성</h2>${state.dirty ? html`<span class="chip warn">저장 안 한 변경이 있어요</span>` : arr ? html`<span class="chip ok">저장됨</span>` : ''}</div>
-      <p class="muted" style="margin: 0; font-weight: 600">솔로 랭크 점수로 팀 점수(세 명 합)가 가장 고르게 되도록 같은 티어끼리 섞어요. 자물쇠를 잠근 선수는 다시 돌려도 그 팀에 남아요. 선수 이름을 누르고 같은 티어의 다른 선수를 누르면 자리를 맞바꿔요.</p>
+      <p class="muted" style="margin: 0; font-weight: 600">1티어는 팀마다 한 명씩 두고, 2 · 3티어는 구분 없이 섞어서 팀 점수(세 명 합)가 가장 고르게 되도록 짜요. 자물쇠를 잠근 선수는 다시 돌려도 그 팀에 남아요. 선수 이름을 누르고 다른 팀 선수를 누르면 자리를 맞바꿔요 (팀장끼리 · 2 · 3티어끼리).</p>
       <div class="flex" style="gap: 8px">
         <button type="button" class="btn pink big" data-roll ${plan.ok && !state.busy ? '' : 'disabled'}>${arr ? '다시 돌리기' : '자동 편성 돌리기'}</button>
         ${arr ? html`<button type="button" class="btn sky" data-save-auto ${state.busy ? 'disabled' : ''}>${state.busy ? '저장 중…' : '저장'}</button>
@@ -182,9 +191,9 @@ startAdmin('teams', async (main) => {
       ${arr ? html`${statsLine(arr)}
         ${waiting.length ? html`<p class="notice warn" style="margin: 0">아직 팀에 없는 선수 ${waiting.length}명 (${waiting.slice(0, 4).map((x) => x.p.name).join(', ')}${waiting.length > 4 ? ' …' : ''}). 다시 돌리면 빈자리에 들어가요.</p>` : ''}
         <div class="grid" style="--min: 240px">${arr.map((t, i) => html`<article class="team-card"><div class="head"><b>팀 ${i + 1}</b><span class="num" style="font-size: 18px">${num(teamStats([t], valueFn()).sums[0])}점</span></div>
-          ${TIERS.map((k) => (t[k]
-            ? memberLine(t[k], k, { lock: state.locks.has(t[k]), selectable: true })
-            : html`<span class="member waiting">${tierDot(k)}<span class="info"><b class="muted">빈자리</b><small>${k}티어</small></span></span>`))}
+          ${SLOTS.map((k) => (t[k]
+            ? memberLine(t[k], tierIn(t[k]), { lock: state.locks.has(t[k]), selectable: true, extra: k === 1 ? '팀장' : '' })
+            : html`<span class="member waiting">${k === 1 ? tierDot(1) : ''}<span class="info"><b class="muted">빈자리</b><small>${k === 1 ? '1티어 팀장' : '2 · 3티어'}</small></span></span>`))}
         </article>`)}</div>`
         : html`<p class="empty">${plan.ok ? '"자동 편성 돌리기"를 누르면 팀이 나와요!' : '먼저 위에서 참가자 티어 인원을 맞춰 주세요.'}</p>`}
     </section>`;
@@ -197,7 +206,7 @@ startAdmin('teams', async (main) => {
       if (state.order.length !== caps.length || state.order.some((id) => !caps.includes(id))) state.order = captainOrderFromPrev(caps, prev.standing);
       return html`<section class="card ink stack" style="gap: 14px">
         <div class="card-head"><h2>드래프트 준비</h2><span class="chip">${DRAFT_STATUS.before}</span></div>
-        <p class="muted" style="margin: 0; font-weight: 600">팀장은 1티어예요. 2티어는 위에서부터(지난 내전 꼴찌 팀장부터), 3티어는 아래에서부터(1등 팀장부터) 지명해요. ${prev.event ? `"${prev.event.title}" 순위로 정렬했어요.` : '지난 내전 기록이 없어서 이름 순서예요. 화살표로 바꿔 주세요.'}</p>
+        <p class="muted" style="margin: 0; font-weight: 600">팀장은 1티어예요. 첫 바퀴는 위에서부터(지난 내전 꼴찌 팀장부터), 둘째 바퀴는 아래에서부터(1등 팀장부터) 2 · 3티어 중 아무나 지명해요. ${prev.event ? `"${prev.event.title}" 순위로 정렬했어요.` : '지난 내전 기록이 없어서 이름 순서예요. 화살표로 바꿔 주세요.'}</p>
         ${state.order.length ? html`<ol style="list-style: none; margin: 0; padding: 0; display: grid; gap: 8px">${state.order.map((id, i) => {
           const s = prev.standing.get(id);
           return html`<li class="flex" style="flex-wrap: nowrap; gap: 10px; background: var(--bg); border-radius: 16px; padding: 6px 10px">
@@ -221,14 +230,15 @@ startAdmin('teams', async (main) => {
       <div class="card-head"><h2>드래프트</h2><span class="chip ${d.status === 'live' ? 'soft' : 'ok'}">${DRAFT_STATUS[d.status]} · ${d.picks.length} / ${d.seq.length}</span></div>
       ${d.cur ? html`<div class="hero" style="padding: 18px 20px; gap: 12px">
           <div style="display: grid; gap: 6px; flex: 999 1 320px"><span class="sticker">${d.picks.length + 1}번째 지명</span>
-            <h2 class="big" style="font-size: 30px">${nameOf(d.cur.captain)} 팀장 · ${d.cur.tier}티어</h2>
+            <h2 class="big" style="font-size: 30px">${nameOf(d.cur.captain)} 팀장 · ${d.cur.round === 1 ? '첫' : '둘째'} 바퀴</h2>
             <span style="font-weight: 700">아래에서 고른 선수를 누르면 바로 들어가요. 실수하면 "되돌리기"를 눌러요.</span></div>
         </div>
-        <div class="stack" style="gap: 8px"><b style="font-family: var(--head); font-size: 17px; color: var(--t${d.cur.tier})">${d.cur.tier}티어 남은 선수 ${d.pool[d.cur.tier].length}명</b>
-          <div class="grid" style="--min: 220px; gap: 8px">${d.pool[d.cur.tier].map((id) => {
+        <div class="stack" style="gap: 8px"><b style="font-family: var(--head); font-size: 17px">2 · 3티어 남은 선수 ${d.pool.rest.length}명 <small class="muted" style="font-family: var(--body); font-size: 13px; font-weight: 700">티어 상관없이 아무나 골라요</small></b>
+          <div class="grid" style="--min: 220px; gap: 8px">${d.pool.rest.map((id) => {
             const sc = scores().get(id);
+            const tier = tierIn(id);
             return html`<button type="button" class="member" data-pick="${id}" ${state.busy ? 'disabled' : ''} style="cursor: pointer; border: 2px solid transparent; text-align: left; font: inherit">
-              ${tierDot(d.cur.tier)}<span class="info"><b>${nameOf(id)}</b><small>${sc?.estimated ? '≈ ' : ''}${num(sc?.value)}점${sc?.estimated ? ' (기록 없음)' : ''}</small></span></button>`;
+              ${tierDot(tier)}<span class="info"><b>${nameOf(id)}</b><small>${tier}티어 · ${sc?.estimated ? '≈ ' : ''}${num(sc?.value)}점${sc?.estimated ? ' (기록 없음)' : ''}</small></span></button>`;
           })}</div>
         </div>` : html`<p class="notice" style="margin: 0">모든 지명이 끝났어요! 공개 페이지에 팀이 떠 있어요.</p>`}
       <div class="flex" style="gap: 8px">
@@ -240,12 +250,12 @@ startAdmin('teams', async (main) => {
       <div class="grid" style="--min: 240px">${d.captains.map((c, i) => {
         const t = d.fixed[i];
         const isCur = d.cur && d.cur.team === i;
-        const pickOf = (k) => d.picks.find((p) => p.team_no === i + 1 && p.slot_tier === k);
+        const pickOf = (k) => d.picks.find((p) => p.player_id === t[k]);
         return html`<article class="team-card ${isCur ? 'current' : ''}"><div class="head"><b>${nameOf(c)} 팀</b><small class="muted" style="font-weight: 700">팀 ${i + 1} · <span class="num">${num(teamStats([t], value).sums[0])}</span>점</small></div>
           ${memberLine(c, 1, { extra: '팀장' })}
-          ${[2, 3].map((k) => (t[k]
-            ? memberLine(t[k], k, { extra: `${pickOf(k)?.pick_no}번 지명${pickOf(k)?.auto_pick ? ' · 자동' : ''}` })
-            : html`<span class="member waiting">${tierDot(k)}<span class="info"><b class="muted">대기 중</b><small>${k}티어 지명 전</small></span></span>`))}
+          ${REST.map((k) => (t[k]
+            ? memberLine(t[k], tierIn(t[k]), { extra: `${pickOf(k)?.pick_no}번 지명${pickOf(k)?.auto_pick ? ' · 자동' : ''}` })
+            : html`<span class="member waiting"><span class="info"><b class="muted">대기 중</b><small>${k === 2 ? '첫' : '둘째'} 바퀴 지명 전 · 2 · 3티어</small></span></span>`))}
         </article>`;
       })}</div>
       ${e && !e.teams_public ? html`<p class="notice warn" style="margin: 0">공개 페이지에 아직 안 보여요. 위의 "공개 페이지에 보여주기"를 켜 주세요.</p>` : ''}
@@ -348,7 +358,7 @@ startAdmin('teams', async (main) => {
     const plan = teamPlan(list);
     if (!plan.ok) return toast(plan.problems[0], true);
     const fixed = emptyTeams(plan.teams);
-    if (state.arr) state.arr.forEach((t, i) => TIERS.forEach((k) => { if (t[k] && state.locks.has(t[k]) && i < plan.teams) fixed[i][k] = t[k]; }));
+    if (state.arr) state.arr.forEach((t, i) => SLOTS.forEach((k) => { if (t[k] && state.locks.has(t[k]) && i < plan.teams) fixed[i][k] = t[k]; }));
     const r = balance({ fixed, pool: poolFrom(list, fixed), value: valueFn(), shuffleGood: !!state.arr, avoid: state.arr });
     const same = state.arr && signature(r.teams) === signature(state.arr);
     state.arr = r.teams; state.options = r.options; state.dirty = true; state.sel = null;
@@ -364,9 +374,9 @@ startAdmin('teams', async (main) => {
   on(main, 'click', '[data-swap]', (_e, b) => {
     const id = b.dataset.swap;
     if (!state.sel || state.sel === id) { state.sel = state.sel === id ? null : id; draw(); return; }
-    const find = (pid) => { for (let i = 0; i < state.arr.length; i++) for (const k of TIERS) if (state.arr[i][k] === pid) return [i, k]; return null; };
+    const find = (pid) => { for (let i = 0; i < state.arr.length; i++) for (const k of SLOTS) if (state.arr[i][k] === pid) return [i, k]; return null; };
     const a = find(state.sel), c = find(id);
-    if (!a || !c || a[1] !== c[1]) { state.sel = id; draw(); return toast('같은 티어끼리만 맞바꿀 수 있어요. 방금 누른 선수를 골랐어요.'); }
+    if (!a || !c || (a[1] === 1) !== (c[1] === 1)) { state.sel = id; draw(); return toast('팀장(1티어)은 팀장끼리, 2 · 3티어는 2 · 3티어끼리 맞바꿀 수 있어요. 방금 누른 선수를 골랐어요.'); }
     if (a[0] === c[0]) { state.sel = id; draw(); return; }
     state.arr[a[0]][a[1]] = id; state.arr[c[0]][c[1]] = state.sel;
     toast(`${nameOf(state.sel)} ↔ ${nameOf(id)} 자리를 바꿨어요.`);
@@ -374,7 +384,7 @@ startAdmin('teams', async (main) => {
   });
   on(main, 'click', '[data-save-auto]', async () => {
     const rows = [];
-    state.arr.forEach((t, i) => TIERS.forEach((k) => { if (t[k]) rows.push({ event_id: state.eventId, player_id: t[k], team_no: i + 1, slot_tier: k, locked: state.locks.has(t[k]), pick_no: null, auto_pick: false }); }));
+    state.arr.forEach((t, i) => SLOTS.forEach((k) => { if (t[k]) rows.push({ event_id: state.eventId, player_id: t[k], team_no: i + 1, slot_tier: tierIn(t[k]), locked: state.locks.has(t[k]), pick_no: null, auto_pick: false }); }));
     await run(async () => {
       await remove('event_teams', { event_id: state.eventId });
       if (rows.length) await insert('event_teams', rows);
@@ -410,7 +420,7 @@ startAdmin('teams', async (main) => {
     if (!d.cur) return;
     const step = d.picks.length;
     await run(async () => {
-      await insert('event_teams', { event_id: state.eventId, player_id: id, team_no: d.cur.team + 1, slot_tier: d.cur.tier, locked: true, pick_no: step + 1, auto_pick: false });
+      await insert('event_teams', { event_id: state.eventId, player_id: id, team_no: d.cur.team + 1, slot_tier: tierIn(id), locked: true, pick_no: step + 1, auto_pick: false });
       await update('drafts', { status: step + 1 >= d.seq.length ? 'done' : 'live', updated_at: new Date().toISOString() }, { event_id: state.eventId });
     }, `${nameOf(d.cur.captain)} 팀장 → ${nameOf(id)}${step + 1 >= d.seq.length ? ' · 드래프트 끝!' : ''}`);
   };

@@ -22,7 +22,7 @@ const ADMIN_NAV = [
   ['devices', '/admin/devices', '업로드 장치'],
   ['scoring', '/admin/scoring', '점수 규칙'],
   ['access', '/admin/access', '권한 관리'],
-  ['live', '/admin/live', 'OBS 조종판 · 오버레이']
+  ['live', '/admin/live', 'OBS 조종판']
 ];
 
 export const brand = html`<a class="brand" href="/" aria-label="무명섬 홈">
