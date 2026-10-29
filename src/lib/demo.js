@@ -137,7 +137,8 @@ function build() {
   const scoring_rules = [{ id: 1, placement: [10, 7, 5, 4, 3, 2, 1, 0], ks_early: 0.5, ks_late: 1, penalty: 1, updated_at: iso('2026-10-27T10:00:00+09:00') }];
   const admins = [
     { user_id: 'demo-owner', discord_id: '9001', discord_name: 'SG', avatar_url: null, role: 'owner', registered_via: '소유자 키 (처음 한 번)', created_at: iso('2026-09-01T12:00:00+09:00'), last_seen_at: iso('2026-10-27T10:00:00+09:00'), revoked_at: null },
-    { user_id: 'demo-admin', discord_id: '9002', discord_name: '운석줍는사람', avatar_url: null, role: 'admin', registered_via: '웹에서 받은 키', created_at: iso('2026-10-15T20:03:00+09:00'), last_seen_at: iso('2026-10-27T09:58:00+09:00'), revoked_at: null }
+    { user_id: 'demo-admin', discord_id: '9002', discord_name: '운석줍는사람', avatar_url: null, role: 'admin', registered_via: '웹에서 받은 키', created_at: iso('2026-10-15T20:03:00+09:00'), last_seen_at: iso('2026-10-27T09:58:00+09:00'), revoked_at: null },
+    { user_id: 'demo-co', discord_id: '9003', discord_name: '호텔투숙객', avatar_url: null, role: 'co_owner', registered_via: '소유자가 웹에서 추가', created_at: iso('2026-10-20T21:10:00+09:00'), last_seen_at: iso('2026-10-26T23:41:00+09:00'), revoked_at: null }
   ];
   const admin_keys = [
     { id: 'k1', key_hash: 'x', prefix: 'Q9ZP', memo: '새 운영진', target_discord: null, expires_at: iso('2026-10-28T10:00:00+09:00'), created_by: 'demo-owner', created_via: 'web', created_at: iso('2026-10-27T09:00:00+09:00'), used_at: null, used_by: null, revoked_at: null }

@@ -106,6 +106,7 @@ export async function remove(table, eq) {
 const demoRpc = {
   is_admin: () => true,
   is_owner: () => true,
+  is_primary_owner: () => true,
   owner_exists: () => true,
   touch_admin: () => null,
   claim_owner: () => ({ ok: true }),
@@ -129,14 +130,27 @@ const demoRpc = {
     if (!/^[0-9]{15,21}$/.test(did)) throw new Error('디스코드 사용자 ID(숫자 17~19자리)를 확인해 주세요');
     const cur = tables.admins.find((a) => a.discord_id === did);
     if (cur && !cur.revoked_at) return { ok: true, state: 'already', name: cur.discord_name };
-    if (cur) { cur.revoked_at = null; cur.registered_via = '소유자가 웹에서 추가'; return { ok: true, state: 'added', name: cur.discord_name }; }
+    if (cur) { cur.revoked_at = null; cur.role = 'admin'; cur.registered_via = '소유자가 웹에서 추가'; return { ok: true, state: 'added', name: cur.discord_name }; }
     tables.admin_grants = (tables.admin_grants || []).filter((g) => g.discord_id !== did);
     tables.admin_grants.push({ discord_id: did, discord_name: (p_name || '').trim() || null, created_by: 'demo-owner', created_via: 'web', created_at: new Date().toISOString(), used_at: null, used_by: null, revoked_at: null });
     return { ok: true, state: 'pending', name: (p_name || '').trim() || null };
   },
   revoke_admin_grant: ({ p_discord_id }) => { const g = (tables.admin_grants || []).find((x) => x.discord_id === p_discord_id && !x.used_at); if (g) g.revoked_at = new Date().toISOString(); return null; },
   claim_admin_grant: () => true,
-  set_admin_revoked: ({ p_user, p_revoked }) => { const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner'); if (a) a.revoked_at = p_revoked ? new Date().toISOString() : null; return null; },
+  set_admin_revoked: ({ p_user, p_revoked }) => {
+    const a = tables.admins.find((x) => x.user_id === p_user && x.role !== 'owner');
+    if (a) { a.revoked_at = p_revoked ? new Date().toISOString() : null; if (p_revoked) a.role = 'admin'; }   // 공동 소유자도 빼면 관리자로
+    return null;
+  },
+  set_admin_role: ({ p_user, p_role }) => {
+    if (!['co_owner', 'admin'].includes(p_role)) throw new Error('공동 소유자나 관리자 중에서 골라 주세요');
+    const a = tables.admins.find((x) => x.user_id === p_user);
+    if (!a) throw new Error('관리자 목록에 없는 사람이에요');
+    if (a.role === 'owner') throw new Error('소유자 권한은 바꿀 수 없어요');
+    if (a.revoked_at) throw new Error('해제된 관리자예요. 먼저 되돌린 뒤 바꿔 주세요');
+    a.role = p_role;
+    return null;
+  },
   decide_discord_link: ({ p_id, p_ok }) => {
     const r = (tables.discord_link_requests || []).find((x) => x.id === p_id);
     if (!r || r.status !== 'pending') throw new Error('이미 처리된 요청이에요');

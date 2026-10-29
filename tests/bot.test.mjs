@@ -66,7 +66,7 @@ function fakeDb(seed) {
       calls.push([name, args]);
       if (name === 'bot_create_admin_key') return { data: 'ABCD-EFGH-JKLM', error: null };
       if (name === 'bot_grant_admin') {   // 8단계 SQL 흉내: 소유자 확인 → 이미 관리자 / 로그인한 적 있음(LOGGED) / 예약
-        if (!(t.admins ?? []).some((a) => a.discord_id === args.p_by_discord && a.role === 'owner' && !a.revoked_at)) return { data: null, error: { message: '관리자 추가는 무명섬 소유자만 할 수 있어요' } };
+        if (!(t.admins ?? []).some((a) => a.discord_id === args.p_by_discord && ['owner', 'co_owner'].includes(a.role) && !a.revoked_at)) return { data: null, error: { message: '관리자 추가는 무명섬 소유자 · 공동 소유자만 할 수 있어요' } };
         const cur = (t.admins ?? []).find((a) => a.discord_id === args.p_discord_id && !a.revoked_at);
         if (cur) return { data: { ok: true, state: 'already', name: cur.discord_name }, error: null };
         (t.admin_grants ||= []).push({ discord_id: args.p_discord_id, discord_name: args.p_name || null, created_via: 'bot', used_at: null, revoked_at: null });
@@ -510,6 +510,34 @@ test('/관리자추가: 소유자만 · 서버 관리자가 아니어도 운영�
   assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-SG', users: newbie })), /새 운영진 님의 관리자 추가\(로그인 전\)를 취소했어요/);
   assert.ok(s.db.t.admin_grants.find((g) => g.discord_id === 'D7').revoked_at);
   assert.match(s.last(await s.run({ cmd: '내전공지', user: 'D7' })), /운영진/);
+});
+
+test('공동 소유자: 관리자 추가 · 해제는 되고, 소유자 · 다른 공동 소유자는 못 빼요', async () => {
+  const s = setup();
+  s.db.t.admins.push(
+    { user_id: 'U-CO', discord_id: 'D-CO', discord_name: '공동이', role: 'co_owner', registered_via: '웹에서 받은 키', created_at: new Date(Date.now() - 100 * 60000).toISOString(), last_seen_at: null, revoked_at: null },
+    { user_id: 'U-CO2', discord_id: 'D-CO2', discord_name: '공동둘', role: 'co_owner', registered_via: '웹에서 받은 키', created_at: new Date(Date.now() - 90 * 60000).toISOString(), last_seen_at: null, revoked_at: null }
+  );
+  // 목록: 소유자 → 공동 소유자 → 관리자 순
+  const list = s.last(await s.run({ cmd: '관리자목록', user: 'D-CO' }));
+  assert.match(list, /👑 \*\*SG\*\* \(소유자\)[\s\S]*🌟 \*\*공동이\*\* \(공동 소유자\)[\s\S]*🛡️ \*\*운석\*\*/);
+
+  // 공동 소유자도 /관리자추가 돼요
+  const newbie = { 유저: { id: 'D7', nick: '새 운영진' } };
+  assert.match(s.last(await s.run({ cmd: '관리자추가', user: 'D-CO', users: newbie })), /새 운영진 님을 무명섬 관리자로 추가했어요/);
+  assert.deepEqual(s.db.calls.at(-1), ['bot_grant_admin', { p_by_discord: 'D-CO', p_discord_id: 'D7', p_name: '새 운영진' }]);
+
+  // 소유자 · 다른 공동 소유자는 못 빼고, 일반 관리자는 빼요
+  assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-CO', users: { 유저: { id: 'D-SG', nick: 'SG' } } })), /소유자는 해제할 수 없어요/);
+  assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-CO', users: { 유저: { id: 'D-CO2', nick: '공동둘' } } })), /공동 소유자는 소유자만 뺄 수 있어요/);
+  assert.equal(s.db.t.admins.find((x) => x.user_id === 'U-CO2').revoked_at, null);
+  assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-CO', users: { 유저: { id: 'D-A', nick: '운석' } } })), /운석 님을 무명섬 관리자에서 뺐어요/);
+
+  // 소유자는 공동 소유자를 뺄 수 있고, 빼면 관리자로 내려가요
+  assert.match(s.last(await s.run({ cmd: '관리자해제', user: 'D-SG', users: { 유저: { id: 'D-CO2', nick: '공동둘' } } })), /공동둘 님을 무명섬 관리자에서 뺐어요/);
+  const co2 = s.db.t.admins.find((x) => x.user_id === 'U-CO2');
+  assert.ok(co2.revoked_at);
+  assert.equal(co2.role, 'admin');
 });
 
 test('/관리자추가: 8단계 SQL 전이면 알려 줘요', async () => {

@@ -21,15 +21,24 @@ const BOT_COMMANDS = [
     ['/관리자키 [@유저]', '그 사람 계정으로만 쓸 수 있는 24시간 키를 DM 으로 (비우면 나)'],
     ['/관리자목록', '지금 관리자 · 로그인 전 추가 · 안 쓴 키 개수']
   ]],
-  ['무명섬 소유자', [
-    ['/관리자추가 @유저', '키 없이 바로 무명섬 관리자로 (아래 "관리자 바로 추가"와 같아요). DM 으로 안내가 가요'],
-    ['/관리자해제 @유저', '바로 관리자 화면에 못 들어오게 막고, 그 사람 앞으로 남은 키 · 로그인 전 추가도 취소해요']
+  ['무명섬 소유자 · 공동 소유자', [
+    ['/관리자추가 @유저', '키 없이 바로 무명섬 관리자로 (아래 "관리자 바로 추가"와 같아요). 유저 칸에서 @ 로 사람을 골라요. DM 으로 안내가 가요'],
+    ['/관리자해제 @유저', '바로 관리자 화면에 못 들어오게 막고, 그 사람 앞으로 남은 키 · 로그인 전 추가도 취소해요 (공동 소유자를 빼는 건 소유자만)']
   ]]
 ];
 
-startAdmin('access', async (main, { isOwner }) => {
+// 권한 이름 · 색 · 목록 순서
+const ROLES = { owner: ['소유자', 'soft', 0], co_owner: ['공동 소유자', 'warn', 1], admin: ['관리자', 'sky', 2] };
+const roleOf = (r) => ROLES[r] || ROLES.admin;
+const NEED_11 = 'Supabase SQL Editor 에서 20261029040000_co_owner.sql (11단계)을 먼저 실행해 주세요.';
+
+startAdmin('access', async (main, { user, isOwner }) => {
   const state = { lock: 'any', fresh: null, freshFor: '', copied: false, busy: false, grantMode: 'player', granting: false };
   let keys = [], admins = [], grants = null, linked = [];
+  // 진짜 소유자인지 (공동 소유자 정하기) · 11단계 SQL 전이면 null
+  const isPrimary = await rpc('is_primary_owner').catch(() => null);
+  const coOwnerReady = isPrimary !== null;
+  const meOwner = () => admins.some((a) => a.user_id === user?.id && a.role === 'owner' && !a.revoked_at);
 
   const reload = async () => {
     const now = new Date().toISOString();
@@ -64,7 +73,7 @@ startAdmin('access', async (main, { isOwner }) => {
         ${grants.map((g) => html`<div class="flex" style="background: var(--bg); border-radius: 18px; padding: 10px 14px"><span style="flex: 1 1 200px; display: grid"><b>${g.discord_name || '이름 없음'}</b><small class="muted" style="font-weight: 600">디스코드 ID ${g.discord_id} · ${g.created_via === 'bot' ? '봇 /관리자추가' : '웹'} · ${dateTimeShort(g.created_at)} · 운영진 명령어는 지금도 돼요</small></span>${isOwner ? html`<button class="btn sm ghost danger" type="button" data-cancel-grant="${g.discord_id}">취소</button>` : ''}</div>`)}
       </div>` : '';
     if (!isOwner) {
-      return html`<section class="card ink"><h2>관리자 바로 추가</h2><p class="muted" style="margin: 0; font-weight: 600">관리자 바로 추가는 소유자만 할 수 있어요. 다른 운영진을 부르려면 아래에서 관리자 키를 만들어 주세요.</p>${list}</section>`;
+      return html`<section class="card ink"><h2>관리자 바로 추가</h2><p class="muted" style="margin: 0; font-weight: 600">관리자 바로 추가는 소유자 · 공동 소유자만 할 수 있어요. 다른 운영진을 부르려면 아래에서 관리자 키를 만들어 주세요.</p>${list}</section>`;
     }
     const options = linked.map((l) => {
       const tag = activeAdmin(l.discordId) ? ' (이미 관리자)' : waiting(l.discordId) ? ' (로그인 기다리는 중)' : '';
@@ -87,8 +96,24 @@ startAdmin('access', async (main, { isOwner }) => {
     </section>`;
   };
 
+  const sortedAdmins = () => [...admins].sort((a, b) => (!!a.revoked_at - !!b.revoked_at) || (roleOf(a.role)[2] - roleOf(b.role)[2]) || String(a.created_at).localeCompare(String(b.created_at)));
+  const small = (t) => html`<small class="muted" style="font-weight: 700">${t}</small>`;
+  // 줄마다 할 수 있는 일: 소유자는 못 건드리고, 공동 소유자는 소유자만 바꿔요
+  const actions = (a) => {
+    if (a.role === 'owner') return small('해제 불가');
+    if (a.revoked_at) return isOwner ? html`<button class="btn sm" type="button" data-toggle-admin="${a.user_id}" data-revoked="1">되돌리기</button>` : '';
+    if (a.role === 'co_owner') return isPrimary ? html`<button class="btn sm ghost" type="button" data-set-role="admin" data-user="${a.user_id}" data-name="${a.discord_name || ''}">관리자로 내리기</button>` : small('소유자만 바꿀 수 있어요');
+    return html`${isPrimary ? html`<button class="btn sm" type="button" data-set-role="co_owner" data-user="${a.user_id}" data-name="${a.discord_name || ''}">공동 소유자로</button>` : ''}${isOwner ? html`<button class="btn sm ghost danger" type="button" data-toggle-admin="${a.user_id}" data-revoked="">해제</button>` : ''}`;
+  };
+  const coOwnerNote = () => {
+    const what = '공동 소유자는 소유자처럼 관리자를 바로 추가하고 해제할 수 있는 관리자예요. 소유자와 다른 공동 소유자는 못 빼고, 공동 소유자를 정하는 건 소유자만 해요. Supabase · Vercel · 봇 서버 계정은 따로라서 여기서 생기지 않아요.';
+    if (!coOwnerReady && meOwner()) return `${what} 쓰려면 ${NEED_11}`;
+    if (!isOwner) return `관리자 해제는 소유자 · 공동 소유자만 할 수 있어요. ${what}`;
+    return what;
+  };
+
   const draw = () => mount(main, html`
-    <div><h1>권한 관리</h1><p class="lead">관리자는 디스코드로 로그인해요. 소유자가 디스코드 계정을 바로 추가하거나, 관리자 키를 주면 돼요! 디스코드 서버 역할이랑은 상관없어서 서버 권한이 바뀌어도 괜찮답니다.</p></div>
+    <div><h1>권한 관리</h1><p class="lead">관리자는 디스코드로 로그인해요. 소유자 · 공동 소유자가 디스코드 계정을 바로 추가하거나, 관리자 키를 주면 돼요! 디스코드 서버 역할이랑은 상관없어서 서버 권한이 바뀌어도 괜찮답니다.</p></div>
     <div class="row">
       <div class="grow stack" style="gap: 18px">
         ${grantCard()}
@@ -118,16 +143,16 @@ startAdmin('access', async (main, { isOwner }) => {
           <small class="muted" style="font-weight: 600">결과 검토에서 라운드를 확정하면 30초 안에 공지 채널에 결과가 자동으로 올라가요. 참가 공지도 일정이 모집 중이 되면 바로, 시작 24시간 전에 한 번 더 자동으로 올라가요. 라운드를 확정하면 그 라운드 MVP 투표가 열리고 30분 뒤 자동으로 마감 · 발표돼요. 내전이 끝나면 참가 공지 · 투표 메시지는 지워지고 결과 · MVP 발표는 남아요. 운영진 명령어는 목록에는 누구나 보이지만 서버 관리자나 무명섬 관리자만 쓸 수 있어요. 봇 답장은 대부분 나만 보이게 와요. 설치 · 채널 나누기 · 서버 옮기기는 GitHub 의 bot/README.md 를 봐 주세요.</small>
         </section>
         <section class="card"><h2>안전장치</h2><ul style="margin: 0; padding-left: 18px; display: grid; gap: 4px; font-size: 13px; font-weight: 600">
-          <li>키는 1회용이고, 유효 시간이 지나면 못 써요</li><li>키 원문은 저장하지 않고 암호화한 값만 남겨요</li><li>키를 5번 틀리면 10분 동안 막혀요</li><li>관리자 기능을 쓸 때마다 권한을 다시 확인해서, 해제하면 바로 막혀요</li><li>바로 추가는 소유자만 할 수 있고, 디스코드가 알려 준 로그인 기록으로 본인인지 확인해요</li><li>소유자는 처음 한 번 소유자 키로 등록하고, 해제할 수 없어요</li></ul></section>
+          <li>키는 1회용이고, 유효 시간이 지나면 못 써요</li><li>키 원문은 저장하지 않고 암호화한 값만 남겨요</li><li>키를 5번 틀리면 10분 동안 막혀요</li><li>관리자 기능을 쓸 때마다 권한을 다시 확인해서, 해제하면 바로 막혀요</li><li>바로 추가 · 해제는 소유자 · 공동 소유자만 할 수 있고, 디스코드가 알려 준 로그인 기록으로 본인인지 확인해요</li><li>소유자는 처음 한 번 소유자 키로 등록하고, 해제할 수 없어요</li><li>공동 소유자는 소유자만 정하고 뺄 수 있어요. 공동 소유자끼리도 서로 못 빼요</li></ul></section>
       </div>
     </div>
     <section class="card"><h2>관리자 ${admins.filter((a) => !a.revoked_at).length}명</h2>
-      <div class="table-wrap"><table class="data" style="min-width: 620px"><thead><tr><th>관리자</th><th>권한</th><th>등록 방법</th><th>마지막 접속</th><th><span class="sr-only">관리</span></th></tr></thead><tbody>
-        ${admins.map((a) => html`<tr style="${a.revoked_at ? 'opacity: 0.55' : ''}"><td><b>${a.discord_name || '이름 없음'}</b>${a.discord_id ? html`<br><small class="muted">ID ${a.discord_id}</small>` : ''}</td>
-          <td><span class="chip ${a.role === 'owner' ? 'soft' : 'sky'}" style="font-size: 12px; padding: 1px 10px">${a.role === 'owner' ? '소유자' : '관리자'}</span></td><td style="font-weight: 600">${a.registered_via}</td><td class="num muted">${a.revoked_at ? '해제됨' : dateTimeShort(a.last_seen_at)}</td>
-          <td class="r">${a.role === 'owner' ? html`<small class="muted" style="font-weight: 700">해제 불가</small>` : isOwner ? html`<button class="btn sm ${a.revoked_at ? '' : 'ghost danger'}" type="button" data-toggle-admin="${a.user_id}" data-revoked="${a.revoked_at ? '1' : ''}">${a.revoked_at ? '되돌리기' : '해제'}</button>` : ''}</td></tr>`)}
+      <div class="table-wrap"><table class="data" style="min-width: 680px"><thead><tr><th>관리자</th><th>권한</th><th>등록 방법</th><th>마지막 접속</th><th><span class="sr-only">관리</span></th></tr></thead><tbody>
+        ${sortedAdmins().map((a) => html`<tr style="${a.revoked_at ? 'opacity: 0.55' : ''}"><td><b>${a.discord_name || '이름 없음'}</b>${a.user_id === user?.id ? html` <small class="muted" style="font-weight: 700">(나)</small>` : ''}${a.discord_id ? html`<br><small class="muted">ID ${a.discord_id}</small>` : ''}</td>
+          <td><span class="chip ${roleOf(a.role)[1]}" style="font-size: 12px; padding: 1px 10px">${roleOf(a.role)[0]}</span></td><td style="font-weight: 600">${a.registered_via}</td><td class="num muted">${a.revoked_at ? '해제됨' : dateTimeShort(a.last_seen_at)}</td>
+          <td class="r"><span class="flex" style="justify-content: flex-end; flex-wrap: nowrap; gap: 6px">${actions(a)}</span></td></tr>`)}
       </tbody></table></div>
-      ${!isOwner ? html`<p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">관리자 해제는 소유자만 할 수 있어요.</p>` : ''}
+      <p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">${coOwnerNote()}</p>
     </section>`);
 
   on(main, 'click', '[data-lock]', (_e, b) => { state.lock = b.dataset.lock; draw(); });
@@ -179,6 +204,19 @@ startAdmin('access', async (main, { isOwner }) => {
   });
   on(main, 'click', '[data-toggle-admin]', async (_e, b) => {
     try { await rpc('set_admin_revoked', { p_user: b.dataset.toggleAdmin, p_revoked: !b.dataset.revoked }); await reload(); draw(); } catch (err) { toast(errorText(err), true); }
+  });
+  on(main, 'click', '[data-set-role]', async (_e, b) => {
+    const up = b.dataset.setRole === 'co_owner';
+    const who = b.dataset.name || '이 관리자';
+    if (up && !confirm(`${who} 님을 공동 소유자로 올릴까요?\n관리자를 바로 추가하고 해제하는 일을 소유자처럼 할 수 있게 돼요. 소유자(나)는 못 빼요.`)) return;
+    try {
+      await rpc('set_admin_role', { p_user: b.dataset.user, p_role: b.dataset.setRole });
+      await reload(); draw();
+      toast(up ? `${who} 님이 공동 소유자가 됐어요.` : `${who} 님을 관리자로 내렸어요.`);
+    } catch (err) {
+      const msg = errorText(err);
+      toast(/set_admin_role|schema cache|admins_role_check/.test(msg) ? NEED_11 : msg, true);
+    }
   });
 
   await reload();

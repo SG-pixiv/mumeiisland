@@ -1,7 +1,7 @@
 // 디스코드에 등록할 슬래시 명령어 (npm run register 가 이 목록을 서버에 올려요)
 
 // 운영진 명령어도 목록에는 누구나 보여요. 쓸 수 있는지는 봇이 확인해요:
-//   운영진 = 디스코드 서버 관리자 또는 무명섬 관리자 (소유자가 /관리자추가 · 웹에서 추가한 사람 포함)
+//   운영진 = 디스코드 서버 관리자 또는 무명섬 관리자 (소유자 · 공동 소유자가 /관리자추가 · 웹에서 추가한 사람 포함)
 //   그래서 서버 관리자 권한이 없어도 무명섬 관리자면 다 쓸 수 있어요
 const eventOption = (description = '비워 두면 가장 가까운 내전') => ({ type: 3, name: '내전', description, required: false, autocomplete: true });
 const roundOption = (description) => ({ type: 4, name: '라운드', description, required: false, min_value: 1, max_value: 30 });
@@ -39,11 +39,11 @@ export const commands = [
   },
   { name: '관리자목록', description: '무명섬 관리자와 안 쓴 키 개수 (운영진)' },
   {
-    name: '관리자추가', description: '무명섬 관리자로 바로 추가해요. 서버 관리자처럼 운영진 명령어도 쓸 수 있어요 (무명섬 소유자만)',
+    name: '관리자추가', description: '무명섬 관리자로 바로 추가해요. 서버 관리자처럼 운영진 명령어도 쓸 수 있어요 (소유자 · 공동 소유자만)',
     options: [{ type: 6, name: '유저', description: '관리자로 추가할 사람', required: true }]
   },
   {
-    name: '관리자해제', description: '무명섬 웹 관리자에서 빼요 (무명섬 소유자만)',
+    name: '관리자해제', description: '무명섬 웹 관리자에서 빼요 (소유자 · 공동 소유자만)',
     options: [{ type: 6, name: '유저', description: '관리자에서 뺄 사람', required: true }]
   }
 ].map((c) => ({ ...c, contexts: [0] }));   // 서버 안에서만 (DM 에서는 안 보여요)

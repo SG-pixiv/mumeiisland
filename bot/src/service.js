@@ -7,6 +7,9 @@ import {
   roundVoteMessage, roundMvpResultMessage, ROUND_VOTE_MINUTES
 } from './logic.js';
 
+/** 관리자 추가 · 해제를 할 수 있는 권한 (소유자 · 공동 소유자, DB 11단계) */
+const OWNER_ROLES = ['owner', 'co_owner'];
+
 export function createService(db, { siteUrl = '', rng = Math.random, now = () => Date.now() } = {}) {
   const must = ({ data, error }) => {
     if (error) throw new Error(error.message || String(error));
@@ -318,16 +321,20 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       const active = (admins ?? []).filter((a) => !a.revoked_at);
       const waiting = (await pendingGrants()).filter((g) => !active.some((a) => a.discord_id === g.discord_id));
       const unused = (keys ?? []).filter((k) => !k.used_at && !k.revoked_at && Date.parse(k.expires_at) > now()).length;
-      const lines = active.map((a) => `${a.role === 'owner' ? '👑' : '🛡️'} **${a.discord_name || '이름 없음'}**${a.role === 'owner' ? ' (소유자)' : ''} · ${a.registered_via}${a.last_seen_at ? ` · 마지막 접속 ${shortKst(a.last_seen_at)}` : ''}`);
+      const rank = { owner: 0, co_owner: 1 };
+      const sorted = [...active].sort((a, b) => (rank[a.role] ?? 2) - (rank[b.role] ?? 2));
+      const badge = (r) => (r === 'owner' ? '👑' : r === 'co_owner' ? '🌟' : '🛡️');
+      const tag = (r) => (r === 'owner' ? ' (소유자)' : r === 'co_owner' ? ' (공동 소유자)' : '');
+      const lines = sorted.map((a) => `${badge(a.role)} **${a.discord_name || '이름 없음'}**${tag(a.role)} · ${a.registered_via}${a.last_seen_at ? ` · 마지막 접속 ${shortKst(a.last_seen_at)}` : ''}`);
       const waitLines = waiting.map((g) => `⏳ **${g.discord_name || `<@${g.discord_id}>`}** · 사이트 로그인 전 (${g.created_via === 'bot' ? '봇' : '웹'}에서 추가 · 운영진 명령어는 지금도 돼요)`);
       const head = `무명섬 관리자 ${active.length}명${waiting.length ? ` (+ 로그인 전 ${waiting.length}명)` : ''} · 안 쓴 키 ${unused}개`;
       return { ok: true, text: [head, ...lines, ...waitLines, siteUrl ? `자세히: ${siteUrl}/admin/access` : ''].filter(Boolean).join('\n') };
     },
 
-    /** /관리자추가 @유저: 무명섬 소유자만. 사이트에 로그인한 적 있으면 바로, 없으면 그 계정으로 처음 로그인할 때 관리자가 돼요 */
+    /** /관리자추가 @유저: 무명섬 소유자 · 공동 소유자만. 사이트에 로그인한 적 있으면 바로, 없으면 그 계정으로 처음 로그인할 때 관리자가 돼요 */
     async grantAdmin({ byDiscordId, targetDiscordId, targetName }) {
       const me = await webAdmin(byDiscordId);
-      if (me?.role !== 'owner') return { ok: false, text: '관리자 추가는 무명섬 소유자만 할 수 있어요.' };
+      if (!OWNER_ROLES.includes(me?.role)) return { ok: false, text: '관리자 추가는 무명섬 소유자 · 공동 소유자만 할 수 있어요.' };
       const { data, error } = await db.rpc('bot_grant_admin', { p_by_discord: id(byDiscordId), p_discord_id: id(targetDiscordId), p_name: targetName || '' });
       if (error) {
         if (error.code === 'PGRST202' || /bot_grant_admin/.test(error.message ?? '')) {
@@ -342,12 +349,13 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       return { ok: true, state: 'pending', text: `${who} 님을 무명섬 관리자로 추가했어요! 디스코드 운영진 명령어는 지금부터 쓸 수 있고, ${login} 에서 디스코드로 처음 로그인하면 바로 관리자 화면이 열려요.` };
     },
 
-    /** /관리자해제 유저: 무명섬 소유자만. 그 사람 앞으로 남은 키도 취소 */
+    /** /관리자해제 유저: 무명섬 소유자 · 공동 소유자만 (공동 소유자를 빼는 건 소유자만). 그 사람 앞으로 남은 키도 취소 */
     async revokeAdmin({ byDiscordId, targetDiscordId, targetName }) {
       const me = await webAdmin(byDiscordId);
-      if (me?.role !== 'owner') return { ok: false, text: '관리자 해제는 무명섬 소유자만 할 수 있어요.' };
+      if (!OWNER_ROLES.includes(me?.role)) return { ok: false, text: '관리자 해제는 무명섬 소유자 · 공동 소유자만 할 수 있어요.' };
       const rows = (must(await db.from('admins').select('user_id, discord_name, role, revoked_at').eq('discord_id', id(targetDiscordId))) ?? []).filter((r) => !r.revoked_at);
       if (rows.some((r) => r.role === 'owner')) return { ok: false, text: '소유자는 해제할 수 없어요.' };
+      if (rows.some((r) => r.role === 'co_owner') && me.role !== 'owner') return { ok: false, text: '공동 소유자는 소유자만 뺄 수 있어요.' };
       const keys = (must(await db.from('admin_keys').select('id, used_at, revoked_at').eq('target_discord', id(targetDiscordId).toLowerCase())) ?? []).filter((k) => !k.used_at && !k.revoked_at);
       const stamp = new Date(now()).toISOString();
       for (const k of keys) must(await db.from('admin_keys').update({ revoked_at: stamp }).eq('id', k.id));
@@ -356,7 +364,8 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       const keyNote = (keys.length ? ` 안 쓴 키 ${keys.length}개도 취소했어요.` : '') + (grants.length && rows.length ? ' 로그인 전 추가 예약도 취소했어요.' : '');
       if (!rows.length && grants.length) return { ok: true, text: `${targetName || grants[0].discord_name || '그 사람'} 님의 관리자 추가(로그인 전)를 취소했어요.${keyNote}` };
       if (!rows.length) return { ok: !!keys.length, text: `${targetName || '그 사람'} 님은 무명섬 관리자가 아니에요.${keyNote}` };
-      for (const r of rows) must(await db.from('admins').update({ revoked_at: stamp }).eq('user_id', r.user_id));
+      // 공동 소유자를 빼면 관리자로 내려가요 (되돌려도 관리자)
+      for (const r of rows) must(await db.from('admins').update(r.role === 'co_owner' ? { revoked_at: stamp, role: 'admin' } : { revoked_at: stamp }).eq('user_id', r.user_id));
       return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };
     },
 
