@@ -371,3 +371,95 @@ export function roundResultMessage({ event, round, teams, standings, members, la
 }
 
 export const parseId = (customId, prefix) => (customId.startsWith(prefix + ':') ? customId.slice(prefix.length + 1) : null);
+
+// ── 새 인원 · 선수 등록 (디스코드에서 바로 · 3티어)
+export const REGISTER_MODAL_ID = 'regform';
+export const SELF_REGISTER_MEMO = '디스코드로 직접 등록 (3티어)';
+export const WELCOME_KEEP_HOURS = 24;
+
+/** 방송 채널 주소 → 치지직 채널 id 또는 유튜브 주소 (비우면 없음, 못 알아보면 ok: false) */
+export function parseChannel(input) {
+  const s = String(input ?? '').trim();
+  if (!s) return { ok: true };
+  const chz = s.match(/chzzk\.naver\.com\/(?:live\/)?([0-9a-f]{32})/i) || s.match(/^([0-9a-f]{32})$/i);
+  if (chz) return { ok: true, chzzk_channel_id: chz[1].toLowerCase(), photo_source: 'chzzk' };
+  if (/^(https?:\/\/)?((www|m)\.)?(youtube\.com|youtu\.be)\/\S+/i.test(s)) {
+    return { ok: true, youtube_url: (/^https?:\/\//i.test(s) ? s : 'https://' + s).slice(0, 300), photo_source: 'youtube' };
+  }
+  return { ok: false };
+}
+
+/** 이름 · 닉네임 검사 (빈칸 · 너무 김) */
+export function registerProblem({ name, nickname }) {
+  if (!name) return '이름을 적어 주세요. 치지직 · 유튜브 채널 이름이면 돼요.';
+  if (!nickname) return '이터널 리턴 게임 닉네임을 적어 주세요.';
+  if (name.length > 30) return '이름은 30자까지예요.';
+  if (nickname.length > 30) return '게임 닉네임은 30자까지예요.';
+  return '';
+}
+
+/** 선수 등록 창 (이름 · 게임 닉네임 · 방송 채널 주소) */
+export function registerModal({ name = '', nickname = '' } = {}) {
+  const input = (custom_id, label, { required = true, max = 30, value = '', placeholder } = {}) => ({
+    type: 1,
+    components: [{ type: 4, custom_id, label, style: 1, required, max_length: max, ...(value ? { value: String(value).slice(0, max) } : {}), ...(placeholder ? { placeholder } : {}) }]
+  });
+  return {
+    custom_id: REGISTER_MODAL_ID,
+    title: '무명섬 선수 등록',
+    components: [
+      input('name', '이름 (치지직 · 유튜브 채널 이름)', { value: name, placeholder: '사이트 · 공지에 보일 이름' }),
+      input('nick', '이터널 리턴 게임 닉네임', { value: nickname, placeholder: '게임 안 닉네임 그대로' }),
+      input('channel', '방송 채널 주소 (없으면 비워 두세요)', { required: false, max: 200, placeholder: 'https://chzzk.naver.com/… 또는 유튜브 채널 주소' })
+    ]
+  };
+}
+
+const registerButtons = (suffix = '') => [{
+  type: 1,
+  components: [
+    { type: 2, style: 1, label: '선수예요 · 등록하기', custom_id: 'reg:p' + suffix },
+    { type: 2, style: 2, label: '관계자예요', custom_id: 'reg:s' + suffix }
+  ]
+}];
+const registerGuide = [
+  '**선수예요** → 이름(치지직 · 유튜브 채널 이름)과 게임 닉네임을 적으면 바로 무명섬 선수로 등록돼요. 그다음 공지의 [참가하기]로 내전에 참가하면 돼요.',
+  '**관계자예요** → 따로 할 건 없어요. 공지에서 내전 소식을 볼 수 있어요.'
+].join('\n');
+
+/** 새 인원이 들어오면 환영 채널에 올리는 안내 (그 사람을 @멘션) */
+export function welcomeMessage({ userId, siteUrl = '' }) {
+  return {
+    content: `<@${userId}>`,
+    embeds: [{ title: '무명섬에 오신 걸 환영해요!', url: siteUrl || undefined, color: 0xF880B9, description: `선수인지 관계자인지 골라 주세요.\n\n${registerGuide}` }],
+    components: registerButtons(':' + userId)
+  };
+}
+
+/** /등록안내: 누구나 누를 수 있는 고정 안내 */
+export function registerPanel({ siteUrl = '' } = {}) {
+  return {
+    embeds: [{ title: '무명섬 선수 등록', url: siteUrl || undefined, color: 0x8FDFF5, description: `처음 오셨나요? 아래에서 골라 주세요.\n\n${registerGuide}\n\n이미 무명섬에 선수로 등록돼 있다면 \`/연결 게임닉네임\` 으로 디스코드만 연결하면 돼요.` }],
+    components: registerButtons()
+  };
+}
+
+/** 등록이 끝났을 때 답장 */
+export function registeredText({ name, nickname, channel }) {
+  return [
+    `**${name}** 선수로 등록했어요! (게임 닉네임 \`${nickname}\` · 3티어)`,
+    '• 티어는 운영진이 정해요. 바뀌면 바로 반영돼요.',
+    '• 공지의 [참가하기] 버튼이나 `/참가` 로 내전에 참가할 수 있어요. 내 정보는 `/내정보`.',
+    channel === false ? '• 방송 채널 주소를 알아보지 못했어요. 치지직 · 유튜브 주소를 운영진에게 알려 주세요.' : channel ? '• 방송 채널도 연결했어요. 프로필 사진과 LIVE 표시는 몇 분 안에 사이트에 떠요.' : ''
+  ].filter(Boolean).join('\n');
+}
+
+/**
+ * 1티어(오더) 역할: 연결된 선수 중 활동 중인 1티어에게만 주고, 티어가 바뀌거나 연결을 풀면 빼요
+ * links: [{ discord_id, tier, active }] · managed: 지난번에 역할을 준 사람
+ */
+export function tierRolePlan({ links, managed = [] }) {
+  const want = new Set(links.filter((l) => l.discord_id && l.active !== false && Number(l.tier) === 1).map((l) => l.discord_id));
+  const remove = new Set([...links.filter((l) => l.discord_id && !want.has(l.discord_id)).map((l) => l.discord_id), ...managed.filter((id) => !want.has(id))]);
+  return { add: [...want], remove: [...remove], managed: [...want] };
+}

@@ -6,13 +6,13 @@ import { createRouter, EPHEMERAL } from '../bot/src/router.js';
 import { tally, eventChoices, joinProblem, signupMessage, pickMvpEvent } from '../bot/src/logic.js';
 import { commands } from '../bot/src/commands.js';
 import { memoryStore, channelsOf } from '../bot/src/store.js';
-import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord, introDefaults, introMessage, eventEnded } from '../bot/src/logic.js';
+import { roundResultMessage, pts, autoAnnouncePlan, autoAnnounceText, kstWhenWord, introDefaults, introMessage, eventEnded, parseChannel, tierRolePlan, SELF_REGISTER_MEMO } from '../bot/src/logic.js';
 
 // ── 가짜 Supabase
 const KEYS = {
   events: ['id'], players: ['id'], player_private: ['player_id'], event_participants: ['event_id', 'player_id'],
   event_teams: ['event_id', 'player_id'], bot_messages: ['event_id', 'kind'], mvp_votes: ['event_id', 'voter_player_id'],
-  player_rank_stats: ['player_id'], discord_link_requests: ['id'], admins: ['user_id'], admin_keys: ['id'], admin_grants: ['discord_id'], round_mvp_votes: ['round_id', 'voter_player_id']
+  player_rank_stats: ['player_id'], discord_link_requests: ['id'], tier_history: ['id'], admins: ['user_id'], admin_keys: ['id'], admin_grants: ['discord_id'], round_mvp_votes: ['round_id', 'voter_player_id']
 };
 function fakeDb(seed) {
   const t = structuredClone(seed);
@@ -132,6 +132,9 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
   let failing = false;
   const deleted = [];
   const deleteFails = {};
+  const memberRoles = new Map();   // 디스코드 id → Set(역할)
+  const roleCalls = [];
+  let roleFails = false;
   const router = createRouter({
     service, guildId: 'G', siteUrl: 'https://mumei.test', log: { warn() {}, info() {} },
     sendMessage: async (channelId, payload) => { if (failing) throw Object.assign(new Error('Missing Permissions'), { code: 50013 }); const m = { id: `M${sent.length + 1}`, channelId }; sent.push({ ...m, payload }); return m; },
@@ -142,6 +145,15 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
     },
     sendDM: async (userId, content) => { if (dmFails) throw Object.assign(new Error('Cannot send messages to this user'), { code: 50007 }); dms.push({ userId, content }); },
     canPost: async () => postable,
+    setMemberRole: async (userId, roleId, on) => {
+      const set = memberRoles.get(userId) ?? new Set();
+      memberRoles.set(userId, set);
+      const has = set.has(roleId);
+      if (roleFails && on !== has) throw Object.assign(new Error('Missing Permissions'), { code: 50013 });
+      if (on && !has) { set.add(roleId); roleCalls.push(['add', userId]); return 'added'; }
+      if (!on && has) { set.delete(roleId); roleCalls.push(['remove', userId]); return 'removed'; }
+      return 'same';
+    },
     store,
     now: () => clock
   });
@@ -154,7 +166,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
       options: {
         getString: (k) => o.opts?.[k] ?? null, getInteger: (k) => o.ints?.[k] ?? null, getSubcommand: () => o.sub, getFocused: () => o.focus ?? '',
         getUser: (k) => o.users?.[k] ?? null, getMember: (k) => (o.users?.[k] ? { displayName: o.users[k].nick } : null),
-        getChannel: (k) => o.channels?.[k] ?? null
+        getChannel: (k) => o.channels?.[k] ?? null, getRole: (k) => o.roles?.[k] ?? null
       },
       isAutocomplete: () => o.kind === 'auto', isButton: () => o.kind === 'button', isStringSelectMenu: () => o.kind === 'select', isChatInputCommand: () => (o.kind ?? 'cmd') === 'cmd',
       isModalSubmit: () => o.kind === 'modal', fields: { getTextInputValue: (k) => o.fields?.[k] ?? '' },
@@ -166,7 +178,7 @@ function setup(rng = () => 0.99, { dmFails = false, postable = true } = {}) {
     return replies;
   };
   const last = (r) => r[r.length - 1]?.content ?? '';
-  return { db, service, router, run, last, sent, edits, gone, dms, store, deleted, deleteFails, failSend: (v) => { failing = v; }, wait: (minutes) => { clock += minutes * 60_000; } };
+  return { db, service, router, run, last, sent, edits, gone, dms, store, deleted, deleteFails, memberRoles, roleCalls, roleFails: (v) => { roleFails = v; }, failSend: (v) => { failing = v; }, wait: (minutes) => { clock += minutes * 60_000; } };
 }
 
 test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아요', () => {
@@ -178,12 +190,15 @@ test('명령어 목록: 이름 · 설명 길이가 디스코드 규칙에 맞아
   // 운영진 명령어도 목록에는 다 보여요 (봇이 서버 관리자 · 무명섬 관리자인지 확인)
   assert.deepEqual(commands.filter((c) => c.default_member_permissions).map((c) => c.name), []);
   assert.ok(commands.some((c) => c.name === '관리자추가' && c.options[0].required));
-  assert.equal(commands.length, 13);
+  assert.equal(commands.length, 15);
 });
 
 test('/연결 → 승인 대기, 다시 보내면 요청을 바꿔요', async () => {
   const s = setup();
-  assert.match(s.last(await s.run({ cmd: '연결', opts: { 게임닉네임: '없는사람' } })), /무명섬에 없어요/);
+  // 없는 닉네임이면 등록 창이 떠요 (닉네임 · 디스코드 이름이 미리 채워져요)
+  const modal = (await s.run({ cmd: '연결', opts: { 게임닉네임: '없는사람' } }))[0].modal;
+  assert.equal(modal.custom_id, 'regform');
+  assert.deepEqual(modal.components.map((r) => [r.components[0].custom_id, r.components[0].value ?? '']), [['name', '디코닉'], ['nick', '없는사람'], ['channel', '']]);
   assert.match(s.last(await s.run({ cmd: '연결', opts: { 게임닉네임: ' LUMI ' } })), /'루미' 선수로 연결 요청/);
   assert.match(s.last(await s.run({ cmd: '연결', opts: { 게임닉네임: '귀련' } })), /'귀련' 선수로 연결 요청/);
   const pending = s.db.t.discord_link_requests.filter((r) => r.status === 'pending');
@@ -488,6 +503,128 @@ test('기록 비공개: 결과 공지 · MVP 투표를 쉬고, 다시 켜도 쉬
   delete s.db.t.site_settings;
   s.db.from = ((orig) => (name) => (name === 'site_settings' ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { code: '42P01', message: 'relation does not exist' } }) }) }) } : orig(name)))(s.db.from.bind(s.db));
   assert.deepEqual(await s.service.recordsVisibility(), { results: false, mvp: false });
+});
+
+test('선수 등록: 등록 창 → 바로 3티어 선수 + 디스코드 연결, 겹치면 다시', async () => {
+  const s = setup();
+  const submit = (fields, user = 'D9', nick = '새친구') => s.run({ kind: 'modal', custom: 'regform', user, nick, fields });
+  // 빈칸 · 이미 있는 이름이면 다시 (버튼으로 창을 다시 열어요)
+  let r = await submit({ name: '', nick: 'newbie' });
+  assert.match(s.last(r), /이름을 적어 주세요/);
+  r = await submit({ name: '루미', nick: 'newbie' });
+  assert.match(s.last(r), /'루미' 이름의 선수가 이미 있어요/);
+  assert.equal(r.at(-1).components[0].components[0].custom_id, 'reg:p');
+  // 이미 있는 닉네임이면 새로 만들지 않고 연결 요청 (운영진 승인)
+  r = await submit({ name: '아무개', nick: 'nadine' });
+  assert.match(s.last(r), /이미 무명섬에 있어서 새로 등록하지 않았어요. 대신 '나딘' 선수로 연결 요청/);
+  assert.equal(s.db.t.players.length, 4);
+
+  // 등록: 치지직 주소면 채널도 연결
+  r = await submit({ name: ' 새  친구 ', nick: 'NewFriend', channel: 'https://chzzk.naver.com/live/0123456789abcdef0123456789ABCDEF' });
+  assert.match(s.last(r), /\*\*새 친구\*\* 선수로 등록했어요! \(게임 닉네임 `NewFriend` · 3티어\)/);
+  assert.match(s.last(r), /방송 채널도 연결했어요/);
+  const p = s.db.t.players.find((x) => x.er_nickname === 'NewFriend');
+  assert.deepEqual([p.display_name, p.balance_tier, p.active, p.chzzk_channel_id, p.photo_source], ['새 친구', 3, true, '0123456789abcdef0123456789abcdef', 'chzzk']);
+  assert.equal(s.db.t.player_private.find((x) => x.player_id === p.id).discord_id, 'D9');
+  assert.equal(s.db.t.tier_history.find((x) => x.player_id === p.id).memo, SELF_REGISTER_MEMO);
+  assert.equal(s.db.t.discord_link_requests.filter((x) => x.discord_id === 'D9' && x.status === 'pending').length, 0, '대기 중이던 연결 요청은 지워요');
+  // 등록하자마자 내정보 · 참가가 돼요
+  assert.match(s.last(await s.run({ cmd: '내정보', user: 'D9' })), /\*\*새 친구\*\* · 3티어/);
+  s.db.t.events.find((e) => e.id === 'E1').status = 'open';
+  assert.match(s.last(await s.run({ cmd: '참가', user: 'D9' })), /참가 신청 완료|신청했어요/);
+  // 다시 등록하려 하면 이미 등록
+  assert.match(s.last(await submit({ name: '또', nick: 'another' })), /이미 '새 친구' 선수로 등록돼 있어요/);
+  assert.match(s.last(await s.run({ cmd: '등록', user: 'D9' })), /이미 '새 친구' 선수로 등록돼 있어요/);
+  assert.equal((await s.run({ cmd: '등록', user: 'D8' }))[0].modal.custom_id, 'regform');
+  // 이미 연결된 사람이 없는 닉네임으로 /연결 하면 등록 창 대신 안내
+  assert.match(s.last(await s.run({ cmd: '연결', user: 'D9', opts: { 게임닉네임: '없는닉' } })), /무명섬에 없어요/);
+
+  // 유튜브 · 알아볼 수 없는 주소
+  r = await submit({ name: '유튜버', nick: 'yt1', channel: 'youtube.com/@mumei' }, 'D7');
+  assert.equal(s.db.t.players.find((x) => x.er_nickname === 'yt1').youtube_url, 'https://youtube.com/@mumei');
+  r = await submit({ name: '이름만', nick: 'n1', channel: '그냥 이름' }, 'D6');
+  assert.match(s.last(r), /방송 채널 주소를 알아보지 못했어요/);
+  assert.deepEqual([parseChannel('').ok, parseChannel('abc').ok, parseChannel('https://youtu.be/x').youtube_url], [true, false, 'https://youtu.be/x']);
+});
+
+test('새 인원: 들어오면 환영 채널에 안내 → 고르면 지우고, 24시간 지나도 지워요', async () => {
+  const s = setup();
+  assert.equal(await s.router.welcome({ userId: 'N1' }), false, '공지 · 환영 채널이 없으면 안 올려요');
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  assert.equal(await s.router.welcome({ userId: 'N1' }), true);
+  assert.equal(s.sent.at(-1).channelId, 'C-ANN', '환영 채널이 없으면 공지 채널');
+  assert.equal(s.sent.at(-1).payload.content, '<@N1>');
+  assert.deepEqual(s.sent.at(-1).payload.components[0].components.map((b) => b.custom_id), ['reg:p:N1', 'reg:s:N1']);
+  assert.equal(await s.router.welcome({ userId: 'B1', bot: true }), false, '봇은 빼요');
+  assert.equal(await s.router.welcome({ userId: 'D2' }), false, '이미 연결된 선수(다시 들어온 사람)는 빼요');
+  assert.equal(await s.router.welcome({ userId: 'N1', guild: 'OTHER' }), false);
+
+  await s.run({ cmd: '채널설정', sub: '환영', admin: true, channels: { 채널: { id: 'C-HI' } } });
+  await s.router.welcome({ userId: 'N2' });
+  assert.equal(s.sent.at(-1).channelId, 'C-HI');
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기', admin: true })), /새 인원 환영 채널: <#C-HI>/);
+
+  // N1 이 [관계자예요] → 답장하고 환영 메시지를 지워요
+  assert.match(s.last(await s.run({ kind: 'button', custom: 'reg:s:N1', user: 'N1' })), /관계자로 확인했어요/);
+  assert.deepEqual(s.deleted.map((d) => d.id), ['M1']);
+  // N2 가 [선수예요] → 등록 창 → 등록하면 환영 메시지를 지워요
+  assert.equal((await s.run({ kind: 'button', custom: 'reg:p:N2', user: 'N2', nick: '둘째' }))[0].modal.components[0].components[0].value, '둘째');
+  await s.run({ kind: 'modal', custom: 'regform', user: 'N2', fields: { name: '둘째', nick: 'second' } });
+  assert.deepEqual(s.deleted.map((d) => d.id), ['M1', 'M2']);
+  // 이미 등록된 사람이 버튼을 누르면
+  assert.match(s.last(await s.run({ kind: 'button', custom: 'reg:p', user: 'D2' })), /이미 '루미' 선수로 등록돼 있어요/);
+
+  // 24시간 지나면 남은 안내도 지워요
+  await s.router.welcome({ userId: 'N3' });
+  s.wait(23 * 60);
+  assert.equal(await s.router.cleanupWelcomes(), 0);
+  s.wait(2 * 60);
+  assert.equal(await s.router.cleanupWelcomes(), 1);
+  assert.equal((s.store.get().welcomes ?? []).length, 0);
+
+  // /등록안내 (운영진)
+  assert.match(s.last(await s.run({ cmd: '등록안내' })), /운영진/);
+  await s.run({ cmd: '등록안내', admin: true, channel: 'C-RULES' });
+  assert.equal(s.sent.at(-1).channelId, 'C-RULES');
+  assert.deepEqual(s.sent.at(-1).payload.components[0].components.map((b) => b.custom_id), ['reg:p', 'reg:s']);
+});
+
+test('1티어(오더) 역할: 연결된 1티어에게 주고, 티어가 바뀌거나 연결을 풀면 빼요', async () => {
+  const s = setup();
+  s.db.t.player_private.push({ player_id: 'P1', discord_id: 'D1' });   // 귀련 1티어
+  s.memberRoles.set('D3', new Set(['ROLE1']));                           // 나딘(3티어)이 손으로 받은 역할
+  s.memberRoles.set('X9', new Set(['ROLE1']));                           // 무명섬과 상관없는 사람은 안 건드려요
+  assert.deepEqual(await s.router.syncTierRole(), { added: 0, removed: 0, failed: 0 }, '역할을 안 정하면 아무것도 안 해요');
+  const r = s.last(await s.run({ cmd: '채널설정', sub: '역할', admin: true, roles: { 역할: { id: 'ROLE1' } } }));
+  assert.match(r, /1티어\*\* 선수.*<@&ROLE1>/);
+  assert.match(r, /1명에게 주고 1명에게서 뺐어요/);
+  assert.deepEqual(s.roleCalls, [['add', 'D1'], ['remove', 'D3']]);
+  assert.equal(s.memberRoles.get('X9').has('ROLE1'), true);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '보기', admin: true })), /1티어\(오더\) 역할: <@&ROLE1>/);
+
+  // 웹에서 루미를 1티어로 올리면 주고, 귀련을 2티어로 내리면 빼요
+  s.db.t.players.find((p) => p.id === 'P2').balance_tier = 1;
+  s.db.t.players.find((p) => p.id === 'P1').balance_tier = 2;
+  assert.deepEqual(await s.router.syncTierRole(), { added: 1, removed: 1, failed: 0 });
+  assert.deepEqual(s.roleCalls.slice(2), [['add', 'D2'], ['remove', 'D1']]);
+  // 그대로면 아무것도 안 바뀌어요
+  assert.deepEqual(await s.router.syncTierRole(), { added: 0, removed: 0, failed: 0 });
+  // 루미가 /연결해제 하면 빼요
+  s.db.t.player_private.find((x) => x.player_id === 'P2').discord_id = null;
+  assert.deepEqual(await s.router.syncTierRole(), { added: 0, removed: 1, failed: 0 });
+  // 쉬는 선수(활동 안 함)도 빼요
+  s.db.t.player_private.find((x) => x.player_id === 'P2').discord_id = 'D2';
+  s.db.t.players.find((p) => p.id === 'P2').active = false;
+  assert.deepEqual(await s.router.syncTierRole(), { added: 0, removed: 0, failed: 0 });
+  // 권한이 없으면 실패 개수로 알려 줘요
+  s.db.t.players.find((p) => p.id === 'P2').active = true;
+  s.roleFails(true);
+  assert.equal((await s.router.syncTierRole()).failed, 1);
+  s.roleFails(false);
+  assert.match(s.last(await s.run({ cmd: '채널설정', sub: '역할해제', admin: true })), /1티어 역할 자동 관리를 껐어요/);
+  assert.deepEqual(await s.router.syncTierRole(), { added: 0, removed: 0, failed: 0 });
+
+  assert.deepEqual(tierRolePlan({ links: [{ discord_id: 'a', tier: 1, active: true }, { discord_id: 'b', tier: 2 }], managed: ['c', 'a'] }), { add: ['a'], remove: ['b', 'c'], managed: ['a'] });
 });
 
 test('답장은 나만 보이게, 다른 서버에서는 안 돼요, 자동완성 · 지워진 메시지 정리', async () => {

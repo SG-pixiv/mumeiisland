@@ -1,15 +1,18 @@
 import { startAdmin } from '../../components/shell.js';
 import { html, mount, on, toast, errorText } from '../../lib/dom.js';
-import { select, rpc } from '../../lib/db.js';
+import { select, rpc, insert } from '../../lib/db.js';
 import { loadEvents, nextEvent, loadPlayers } from '../../lib/api.js';
 import { dateKo, timeKo, FORMAT_LABEL, dateTimeShort } from '../../lib/fmt.js';
 import { isDemo } from '../../lib/supabase.js';
 import { mountLiveControl } from '../../components/live-control.js';
 import { liveReady } from '../../lib/live-api.js';
 
+// 봇이 디스코드 등록 때 남기는 티어 기록 메모 (bot/src/logic.js 의 SELF_REGISTER_MEMO 와 같아요)
+const SELF_REGISTER_MEMO = '디스코드로 직접 등록 (3티어)';
+
 startAdmin('home', async (main, { user }) => {
  const render = async () => {
-  const [events, { list, byId }, pending, admins, devices, links, linked, bot, grants, site] = await Promise.all([
+  const [events, { list, byId }, pending, admins, devices, links, linked, bot, grants, site, tierLog] = await Promise.all([
     loadEvents(), loadPlayers({ includeInactive: true }),
     select('rounds', { eq: { status: 'pending' } }), select('admins'),
     select('upload_devices').catch(() => null),   // 2단계 SQL 실행 전이면 null
@@ -17,7 +20,8 @@ startAdmin('home', async (main, { user }) => {
     select('player_private').catch(() => []),
     select('bot_status').catch(() => []),
     select('admin_grants', { columns: 'discord_id' }).catch(() => null),   // 8단계 SQL 실행 전이면 null
-    select('site_settings', { eq: { id: 1 } }).catch(() => null)   // 12단계 SQL 실행 전이면 null
+    select('site_settings', { eq: { id: 1 } }).catch(() => null),   // 12단계 SQL 실행 전이면 null
+    select('tier_history', { order: 'changed_at', asc: false }).catch(() => [])
   ]);
   const discordOf = new Map((linked || []).filter((r) => r.discord_id).map((r) => [r.player_id, r.discord_id]));
   const botSeen = bot?.[0]?.last_seen_at;
@@ -33,6 +37,11 @@ startAdmin('home', async (main, { user }) => {
   const lastSync = synced.map((p) => p.rank.syncedAt).sort().pop();
   const syncIssues = list.filter((p) => p.active && (!p.rank || p.rank.error));
   const noRank = list.filter((p) => p.active && p.rank && !p.rank.error && p.rank.score == null);
+
+  // 디스코드에서 직접 등록한 선수 (3티어로 시작) 중 운영진이 아직 티어를 안 본 사람
+  const latestTier = new Map();
+  for (const h of tierLog) if (!latestTier.has(h.player_id)) latestTier.set(h.player_id, h);
+  const selfRegistered = list.filter((p) => p.active && latestTier.get(p.id)?.memo === SELF_REGISTER_MEMO);
 
   const todos = [
     devices === null && ['결과 검토용 DB 추가하기', 'Supabase SQL Editor 에서 20261028000000_results.sql 을 실행해 주세요 (README 10번)', '/admin/review', '확인'],
@@ -50,6 +59,12 @@ startAdmin('home', async (main, { user }) => {
     !site?.length && ['회차 · 기록 공개 설정용 DB 추가하기', 'Supabase SQL Editor 에서 20261030000000_records_privacy.sql 을 실행해 주세요 (README 20번). 그 전까지 공개 사이트는 경쟁 기록을 숨겨요', '/admin/records', '확인'],
     site?.length && !site[0].records_public && ['경쟁 기록 비공개 중', '내전 결과 · 우승 기록 · 개인 기록 · TK · MVP 가 공개 사이트에서 숨겨져 있어요. 기록은 계속 쌓여요', '/admin/records', '기록 공개']
   ].filter(Boolean);
+  const newCard = selfRegistered.length ? html`<section class="card ink"><div class="card-head"><h2>디스코드로 새로 등록한 선수 ${selfRegistered.length}명</h2><small class="muted" style="font-weight: 600">봇의 등록 창 · 3티어로 시작해요</small></div>
+    <ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 8px">${selfRegistered.map((p) => html`<li class="flex" style="flex-wrap: wrap; gap: 10px; background: var(--soft); border-radius: 18px; padding: 10px 12px">
+      <span style="flex: 1 1 260px; display: grid; min-width: 0"><b>${p.name} <span class="muted" style="font-weight: 600">· 게임 닉네임 ${p.erNickname}</span></b>
+        <small class="muted" style="font-weight: 600">${dateTimeShort(latestTier.get(p.id).changed_at)} 등록 · 디스코드 ${discordOf.get(p.id) || '-'}${p.chzzkId ? ' · 치지직 연결' : p.youtubeUrl ? ' · 유튜브 연결' : ' · 방송 채널 없음'}${p.rank?.error ? ' · 이리 닉네임 확인 필요' : ''}</small></span>
+      <span class="flex" style="gap: 6px"><button type="button" class="btn sm" data-new-tier="1" data-player="${p.id}">1티어</button><button type="button" class="btn sm" data-new-tier="2" data-player="${p.id}">2티어</button><button type="button" class="btn sm pink" data-new-tier="3" data-player="${p.id}">3티어 그대로</button><a class="btn sm ghost" href="/admin/players">고치기</a></span></li>`)}</ul>
+    <small class="muted" style="font-weight: 600">티어를 고르면 이 목록에서 빠져요. 이름 · 닉네임 · 방송 채널이 이상하면 선수 관리에서 고치거나 쉬게 해 주세요. 1티어로 정하면 디스코드 1티어 역할도 3분 안에 붙어요.</small></section>` : '';
   const linkCard = links && links.length ? html`<section class="card ink"><div class="card-head"><h2>디스코드 연결 요청 ${links.length}건</h2><small class="muted" style="font-weight: 600">봇의 /연결 게임닉네임</small></div>
     <ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 8px">${links.map((r) => {
       const p = byId.get(r.player_id);
@@ -71,7 +86,7 @@ startAdmin('home', async (main, { user }) => {
         <p style="margin: 0; font-weight: 700">${FORMAT_LABEL[next.format]} · ${next.planned_rounds}라운드 · 참가 ${next.joined} / ${next.max_players}${next.setting_code ? html` · 설정 코드 <span class="num" style="background: var(--card); border: 2px solid var(--ink); border-radius: 10px; padding: 0 8px">${next.setting_code}</span>` : ''}</p></div>
       <div class="flex" style="flex: 1 1 220px; justify-content: flex-end"><a class="btn big" href="/admin/teams">${next.format === 'draft' ? '드래프트 준비' : '팀 편성'}</a><a class="btn big sky" href="/admin/schedule">일정 수정</a></div>
     </section>` : ''}
-    ${linkCard}
+    ${newCard}${linkCard}
     <div class="row">
       <section class="card grow" style="flex-basis: 380px"><h2>할 일</h2>
         ${todos.length ? html`<ul style="list-style: none; margin: 0; padding: 0; display: grid; gap: 8px">${todos.map(([t, s, href, go]) => html`<li class="flex" style="flex-wrap: nowrap; background: var(--soft); border-radius: 18px; padding: 10px 12px"><span style="flex: 1 1 auto; display: grid; min-width: 0"><b>${t}</b><small class="muted" style="font-weight: 600">${s}</small></span><a class="btn sm ghost" href="${href}">${go}</a></li>`)}</ul>` : html`<p class="muted" style="margin: 0; font-weight: 600">지금은 할 일이 없어요. 데이터가 깨끗해요, 헤헤.</p>`}
@@ -89,6 +104,17 @@ startAdmin('home', async (main, { user }) => {
   const liveBox = main.querySelector('[data-live-control]');
   if (liveBox) mountLiveControl(liveBox);
  };
+  on(main, 'click', '[data-new-tier]', async (_e, b) => {
+    const tier = Number(b.dataset.newTier);
+    b.disabled = true;
+    try {
+      // 티어가 그대로(3)면 확인했다는 기록만 남겨요
+      if (tier === 3) await insert('tier_history', { player_id: b.dataset.player, from_tier: 3, to_tier: 3, memo: '디스코드 등록 확인 · 3티어 그대로', changed_at: new Date().toISOString() });
+      else await rpc('set_player_tier', { p_player: b.dataset.player, p_tier: tier, p_memo: '디스코드 등록 확인' });
+      toast(`${tier}티어로 정했어요.`);
+    } catch (err) { toast(errorText(err), true); }
+    await render();
+  });
   on(main, 'click', '[data-link]', async (_e, b) => {
     const ok = b.dataset.ok === '1';
     if (!ok && !confirm('이 연결 요청을 거절할까요?')) return;

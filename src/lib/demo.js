@@ -70,8 +70,14 @@ function build() {
   const tier_history = [
     { id: 1, player_id: T(1), from_tier: null, to_tier: 2, memo: '첫 등록', changed_by: null, changed_at: iso('2026-09-12T19:00:00+09:00') },
     { id: 2, player_id: T(1), from_tier: 2, to_tier: 1, memo: '최근 내전 활약 반영', changed_by: null, changed_at: iso('2026-10-10T23:00:00+09:00') },
-    { id: 3, player_id: T(10), from_tier: 2, to_tier: 3, memo: null, changed_by: null, changed_at: iso('2026-10-24T19:20:00+09:00') }
+    { id: 3, player_id: T(10), from_tier: 2, to_tier: 3, memo: null, changed_by: null, changed_at: iso('2026-10-24T19:20:00+09:00') },
+    { id: 4, player_id: T(13), from_tier: null, to_tier: 3, memo: '디스코드로 직접 등록 (3티어)', changed_by: null, changed_at: iso('2026-10-30T13:40:00+09:00') }
   ];
+  // 디스코드 봇 등록 창으로 방금 들어온 선수 (3티어로 시작 · 대시보드에서 티어 확인)
+  players.push({ ...players[players.length - 1], id: T(13), display_name: '새벽별', er_nickname: 'dawn_star', er_uid: null, balance_tier: 3, role: null, strength_note: null,
+    chzzk_channel_id: null, youtube_url: 'https://youtube.com/@dawnstar', photo_source: 'youtube', is_live: false, live_title: null, live_viewers: null, live_platform: null, live_url: null, live_started_at: null,
+    created_at: iso('2026-10-30T13:40:00+09:00'), updated_at: iso('2026-10-30T13:40:00+09:00') });
+  player_private.push({ player_id: T(13), discord_id: '402938470100000013', memo: null });
 
   const E = (n) => `00000000-0000-4000-9000-${String(n).padStart(12, '0')}`;
   const events = [

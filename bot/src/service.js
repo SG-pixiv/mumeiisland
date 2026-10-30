@@ -4,8 +4,10 @@
 import {
   shortKst, pickSignupEvent, pickAnnounceEvent, pickMvpEvent, eventChoices,
   joinProblem, leaveProblem, roundVoteProblem, tally, signupMessage, roundResultMessage,
-  roundVoteMessage, roundMvpResultMessage, ROUND_VOTE_MINUTES, recordsVisibility
+  roundVoteMessage, roundMvpResultMessage, ROUND_VOTE_MINUTES, recordsVisibility,
+  parseChannel, registerProblem, registeredText, SELF_REGISTER_MEMO
 } from './logic.js';
+import { randomUUID } from 'node:crypto';
 
 /** 관리자 추가 · 해제를 할 수 있는 권한 (소유자 · 공동 소유자, DB 11단계) */
 const OWNER_ROLES = ['owner', 'co_owner'];
@@ -123,6 +125,56 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       must(await db.from('discord_link_requests').delete().eq('discord_id', id(discordId)).eq('status', 'pending'));
       must(await db.from('discord_link_requests').insert({ discord_id: id(discordId), discord_name: discordName || null, player_id: hit.id }));
       return { ok: true, text: `'${hit.display_name}' 선수로 연결 요청을 보냈어요! 운영진이 무명섬 관리자 화면에서 승인하면 연결돼요.${cur ? ` (지금은 '${cur.display_name}' 선수와 연결돼 있어요)` : ''}` };
+    },
+
+    /** 게임 닉네임으로 선수 찾기 (대소문자 무시 · 없으면 null) */
+    async playerByNickname(nickname) {
+      const nick = String(nickname ?? '').trim().toLowerCase();
+      if (!nick) return null;
+      const players = must(await db.from('players').select('id, display_name, er_nickname, active')) ?? [];
+      return players.find((p) => String(p.er_nickname).trim().toLowerCase() === nick) ?? null;
+    },
+
+    /**
+     * 디스코드에서 바로 선수 등록 (3티어) + 디스코드 연결
+     * 이미 있는 닉네임이면 등록하지 않고 연결 요청(운영진 승인)으로 바꿔요
+     */
+    async registerPlayer({ discordId, discordName, name, nickname, channel }) {
+      const nm = String(name ?? '').trim().replace(/\s+/g, ' ');
+      const nick = String(nickname ?? '').trim();
+      const why = registerProblem({ name: nm, nickname: nick });
+      if (why) return { ok: false, retry: true, text: why };
+      const linked = await playerByDiscord(discordId);
+      if (linked) return { ok: false, text: `이미 '${linked.display_name}' 선수로 등록돼 있어요. 게임 닉네임이나 이름이 바뀌었다면 운영진에게 말해 주세요.` };
+      const players = must(await db.from('players').select('id, display_name, er_nickname')) ?? [];
+      if (players.some((p) => String(p.er_nickname).trim().toLowerCase() === nick.toLowerCase())) {
+        const r = await this.requestLink({ discordId, discordName, nickname: nick });
+        return { ...r, linkRequested: true, text: `'${nick}' 닉네임은 이미 무명섬에 있어서 새로 등록하지 않았어요. 대신 ${r.text}` };
+      }
+      if (players.some((p) => String(p.display_name).trim().toLowerCase() === nm.toLowerCase())) {
+        return { ok: false, retry: true, text: `'${nm}' 이름의 선수가 이미 있어요. 다른 이름으로 다시 등록해 주세요. (이미 등록된 내 선수라면 그 선수의 게임 닉네임으로 \`/연결\` 해 주세요)` };
+      }
+      const ch = parseChannel(channel);
+      const playerId = randomUUID();
+      const row = { id: playerId, display_name: nm, er_nickname: nick, balance_tier: 3, active: true };
+      if (ch.ok && ch.chzzk_channel_id) Object.assign(row, { chzzk_channel_id: ch.chzzk_channel_id, photo_source: 'chzzk' });
+      if (ch.ok && ch.youtube_url) Object.assign(row, { youtube_url: ch.youtube_url, photo_source: 'youtube' });
+      const { error } = await db.from('players').insert(row);
+      if (error) {
+        if (error.code === '23505') return { ok: false, retry: true, text: '방금 같은 이름이나 닉네임의 선수가 생겼어요. 다른 이름으로 다시 해 주세요.' };
+        throw new Error(error.message);
+      }
+      must(await db.from('player_private').upsert({ player_id: playerId, discord_id: id(discordId) }, { onConflict: 'player_id' }));
+      must(await db.from('tier_history').insert({ player_id: playerId, from_tier: null, to_tier: 3, memo: SELF_REGISTER_MEMO }));
+      must(await db.from('discord_link_requests').delete().eq('discord_id', id(discordId)).eq('status', 'pending'));
+      return { ok: true, player: row, text: registeredText({ name: nm, nickname: nick, channel: String(channel ?? '').trim() ? (ch.ok ? true : false) : null }) };
+    },
+
+    /** 1티어 역할용: 디스코드가 연결된 선수 [{ discord_id, tier, active }] */
+    async linkedTiers() {
+      const links = (must(await db.from('player_private').select('player_id, discord_id')) ?? []).filter((l) => l.discord_id);
+      const byId = await playersByIds(links.map((l) => l.player_id));
+      return links.filter((l) => byId.has(l.player_id)).map((l) => ({ discord_id: l.discord_id, tier: byId.get(l.player_id).balance_tier, active: byId.get(l.player_id).active }));
     },
 
     /** /연결해제: 내 연결을 풀고, 대기 중인 요청도 취소 */

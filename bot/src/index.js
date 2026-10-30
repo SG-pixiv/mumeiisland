@@ -17,7 +17,11 @@ const log = {
 
 const db = createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
 const service = createService(db, { siteUrl: cfg.siteUrl });
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// 새 인원 자동 안내에는 Server Members Intent 가 필요해요 (개발자 포털에서 켜기). 꺼져 있으면 그것만 빼고 켜져요
+const wantMembers = process.env.MEMBERS_INTENT !== '0';
+let membersOn = wantMembers;
+const makeClient = (members) => new Client({ intents: members ? [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] : [GatewayIntentBits.Guilds] });
+let client = makeClient(membersOn);
 const store = fileStore(fileURLToPath(new URL('../data/settings.json', import.meta.url)));
 
 const channelOf = async (id) => {
@@ -40,6 +44,16 @@ const router = createRouter({
   sendDM: async (userId, content) => {
     await (await client.users.fetch(userId)).send({ content });
   },
+  // 1티어(오더) 역할 주기 · 빼기 (봇에게 "역할 관리" 권한 + 봇 역할이 그 역할보다 위)
+  setMemberRole: async (userId, roleId, on) => {
+    const guild = await client.guilds.fetch(cfg.guildId);
+    let member;
+    try { member = await guild.members.fetch(userId); } catch (e) { if (e?.code === 10007 || e?.code === 10013) return 'gone'; throw e; }   // 서버를 나갔어요
+    const has = member.roles.cache.has(roleId);
+    if (on && !has) { await member.roles.add(roleId, '무명섬 1티어'); return 'added'; }
+    if (!on && has) { await member.roles.remove(roleId, '무명섬 1티어가 아니에요'); return 'removed'; }
+    return 'same';
+  },
   canPost: async (channelId) => {
     try {
       const ch = await channelOf(channelId);
@@ -50,8 +64,8 @@ const router = createRouter({
   store
 });
 
-client.once(Events.ClientReady, async (c) => {
-  log.info(`무명섬 봇 켜짐: ${c.user.tag} · 서버 ${cfg.guildId}`);
+const onReady = async (c) => {
+  log.info(`무명섬 봇 켜짐: ${c.user.tag} · 서버 ${cfg.guildId}${membersOn ? ' · 새 인원 자동 안내 켜짐' : ''}`);
   try {
     const { count, error } = await db.from('players').select('id', { count: 'exact', head: true });
     if (error) throw error;
@@ -68,7 +82,8 @@ client.once(Events.ClientReady, async (c) => {
         : '6단계 SQL 을 실행했는지 확인해 주세요';
       log.warn(`[신호] ${error.message} → ${hint}`);
     });
-  const tick = () => Promise.all([router.refreshAll(), beat()]).catch((e) => log.warn(`[갱신] ${e?.message ?? e}`));
+  const roles = () => router.syncTierRole().then((r) => { if (r.added || r.removed) log.info(`[1티어 역할] ${r.added}명에게 주고 ${r.removed}명에게서 뺐어요`); });
+  const tick = () => Promise.all([router.refreshAll(), beat(), roles()]).catch((e) => log.warn(`[갱신] ${e?.message ?? e}`));
   tick();
   setInterval(tick, cfg.refreshMinutes * 60_000);
 
@@ -92,13 +107,15 @@ client.once(Events.ClientReady, async (c) => {
     // 웹에서 지운 내전의 디스코드 메시지도 지우기
     try { const n = await router.cleanupDeleted(); if (n) log.info(`지운 내전의 디스코드 메시지 ${n}개를 지웠어요`); }
     catch (e) { log.warn(`[메시지 정리] ${e?.message ?? e}`); }
+    // 24시간 지난 새 인원 환영 메시지 지우기
+    try { await router.cleanupWelcomes(); } catch (e) { log.warn(`[환영 정리] ${e?.message ?? e}`); }
     finally { busy = false; }
   };
   results();
   setInterval(results, 30_000);
-});
+};
 
-client.on(Events.InteractionCreate, async (i) => {
+const onInteraction = async (i) => {
   try {
     await router.handle(i);
   } catch (e) {
@@ -110,13 +127,47 @@ client.on(Events.InteractionCreate, async (i) => {
       else await i.reply({ content: msg, flags: EPHEMERAL });
     } catch { /* 답장도 못 하면 로그만 남겨요 */ }
   }
-});
+};
 
-process.on('unhandledRejection', (e) => log.warn('[처리 못 한 오류]', e?.message ?? e));
-client.login(cfg.token).catch((e) => {
+
+// 새 인원이 들어오면 환영 채널에 선수 · 관계자 안내
+const onJoin = async (member) => {
+  try {
+    if (await router.welcome({ userId: member.id, bot: member.user?.bot, guild: member.guild?.id })) log.info(`[새 인원] ${member.displayName} 님에게 안내를 올렸어요`);
+  } catch (e) { log.warn(`[새 인원] 안내를 못 올렸어요: ${e?.message ?? e}`); }
+};
+
+const loginFailed = (e) => {
   const hint = e?.code === 'TokenInvalid' ? 'DISCORD_TOKEN 이 틀렸어요. 개발자 포털 → Bot → Reset Token 으로 새로 받아 .env 에 넣어 주세요.'
     : /ENOTFOUND|ECONNREFUSED|ETIMEDOUT/.test(String(e?.code ?? e)) ? '인터넷(디스코드 서버)에 연결하지 못했어요. 서버의 네트워크를 확인해 주세요.'
       : String(e?.message ?? e);
   log.warn(`디스코드 로그인 실패: ${hint}`);
   process.exit(1);
-});
+};
+
+/** Server Members Intent 가 꺼져 있으면: 새 인원 자동 안내만 빼고 다시 켜요 */
+let fellBack = false;
+const withoutMembers = () => {
+  if (fellBack) return;
+  fellBack = true;
+  log.warn('[새 인원] 개발자 포털 → Bot → Privileged Gateway Intents 에서 "SERVER MEMBERS INTENT" 가 꺼져 있어요. 켜고 pm2 restart mumei-bot 하면 새 인원 자동 안내가 돼요. 지금은 그것만 빼고 켤게요.');
+  try { client.destroy(); } catch { /* 이미 닫혔어요 */ }
+  membersOn = false;
+  client = makeClient(false);
+  wire(client);
+  client.login(cfg.token).catch(loginFailed);
+};
+
+function wire(c) {
+  c.once(Events.ClientReady, onReady);
+  c.on(Events.InteractionCreate, onInteraction);
+  if (membersOn) {
+    c.on(Events.GuildMemberAdd, onJoin);
+    c.on(Events.ShardDisconnect, (ev) => { if (ev?.code === 4014) withoutMembers(); });   // 4014 = 허용 안 된 intent
+    c.on(Events.Error, (e) => { if (/disallowed intents/i.test(String(e?.message))) withoutMembers(); });
+  }
+}
+
+process.on('unhandledRejection', (e) => log.warn('[처리 못 한 오류]', e?.message ?? e));
+wire(client);
+client.login(cfg.token).catch((e) => (membersOn && /disallowed intents/i.test(String(e?.message ?? e)) ? withoutMembers() : loginFailed(e)));

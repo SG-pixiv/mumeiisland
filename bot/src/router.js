@@ -1,7 +1,10 @@
 // 디스코드에서 온 명령어 · 버튼 · 선택 메뉴를 처리해요.
 // discord.js 에 묶이지 않게 메시지 보내기 · 고치기는 바깥(index.js)에서 넣어 줘요 → 가짜로 테스트할 수 있어요.
 
-import { parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage, eventEnded, RECORDS_OFF_TEXT } from './logic.js';
+import {
+  parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage, eventEnded, RECORDS_OFF_TEXT,
+  REGISTER_MODAL_ID, registerModal, registerPanel, welcomeMessage, tierRolePlan, WELCOME_KEEP_HOURS
+} from './logic.js';
 import { memoryStore, channelsOf, setChannels } from './store.js';
 
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
@@ -11,13 +14,14 @@ const NO_ACCESS = new Set([50001]);     // 봇이 그 채널에 못 들어가요
 const KEEP_POSTS = 1000;                // 기억해 둘 메시지 수 (오래된 것부터 잊어요)
 
 // 명령어 채널을 정해 두면 이 명령어들은 그 채널에서만 받아요 (관리자 명령어는 어디서나)
-const MEMBER_COMMANDS = new Set(['연결', '연결해제', '내정보', '참가', '참가취소']);
+const MEMBER_COMMANDS = new Set(['연결', '연결해제', '내정보', '참가', '참가취소', '등록']);
 
 export function createRouter({
   service, guildId, siteUrl, sendMessage, editMessage, log = console,
   deleteMessage = async () => { throw new Error('메시지를 지울 수 없어요'); },
   sendDM = async () => { throw new Error('DM 을 보낼 수 없어요'); },
   canPost = async () => true,          // 봇이 그 채널에 글을 쓸 수 있는지 (index.js 가 권한을 봐요)
+  setMemberRole = async () => 'same',  // 역할 주기 · 빼기 (index.js) → 'added' | 'removed' | 'same' | 'gone'
   store = memoryStore(),               // 채널 설정 · 이미 올린 결과 (bot/data/settings.json)
   now = () => Date.now()
 }) {
@@ -25,6 +29,18 @@ export function createRouter({
   const displayName = (i) => i.member?.displayName || i.user?.globalName || i.user?.username || '';
   const eph = (content) => ({ content, flags: EPHEMERAL });
   let manualPosts = 0;   // /내전공지 처리 중인 개수
+  /** 오래 걸리면 기다리지 않아요 (디스코드 창은 3초 안에 띄워야 해서) */
+  const quick = (p, ms = 1500, fallback = null) => Promise.race([p.catch(() => fallback), new Promise((r) => setTimeout(() => r(fallback), ms))]);
+  const retryRow = [{ type: 1, components: [{ type: 2, style: 1, label: '다시 등록하기', custom_id: 'reg:p' }] }];
+
+  /** 새 인원 환영 메시지: 그 사람이 고르면 · 24시간 지나면 지워요 */
+  async function dropWelcome(userId) {
+    const list = store.get().welcomes ?? [];
+    const mine = list.filter((w) => w.u === userId);
+    if (!mine.length) return;
+    store.update({ welcomes: list.filter((w) => w.u !== userId) });
+    for (const w of mine) await dropPost(w.c, w.m);
+  }
 
   /** 봇이 올린 공지 · 투표 메시지를 지금 상태로 다시 그려요 */
   async function refresh(eventId, kind) {
@@ -139,6 +155,21 @@ export function createRouter({
     }
 
     if (i.isButton()) {
+      // 새 인원 안내 · /등록안내: 선수예요 → 등록 창, 관계자예요 → 확인
+      const reg = parseId(i.customId, 'reg');
+      if (reg) {
+        const [kind] = reg.split(':');
+        if (kind === 's') {
+          await i.reply(eph('관계자로 확인했어요! 무명섬에 오신 걸 환영해요. 내전 소식은 공지에서 볼 수 있어요.'));
+          return dropWelcome(i.user.id);
+        }
+        const linked = await quick(service.playerByDiscord(i.user.id));
+        if (linked) {
+          await i.reply(eph(`이미 '${linked.display_name}' 선수로 등록돼 있어요! 공지의 [참가하기]로 내전에 참가하면 돼요.`));
+          return dropWelcome(i.user.id);
+        }
+        return i.showModal(registerModal({ name: displayName(i) }));
+      }
       const join = parseId(i.customId, 'join');
       const leave = parseId(i.customId, 'leave');
       if (!join && !leave) return;
@@ -161,6 +192,17 @@ export function createRouter({
     }
 
     // /소개공지 창에서 [보내기]
+    if (i.isModalSubmit?.() && i.customId === REGISTER_MODAL_ID) {
+      await i.deferReply({ flags: EPHEMERAL });
+      const r = await service.registerPlayer({
+        discordId: i.user.id, discordName: displayName(i),
+        name: i.fields.getTextInputValue('name'), nickname: i.fields.getTextInputValue('nick'), channel: i.fields.getTextInputValue('channel')
+      });
+      await i.editReply({ content: r.text, ...(r.retry ? { components: retryRow } : {}) });
+      if (r.ok || r.linkRequested) await dropWelcome(i.user.id);
+      if (r.ok && r.player) log.info(`[선수 등록] ${r.player.display_name} (${r.player.er_nickname}) · 디스코드 ${i.user.id}`);
+      return;
+    }
     if (i.isModalSubmit?.()) {
       if (i.customId !== INTRO_MODAL_ID) return;
       if (!(await staffOnly(i))) return;
@@ -179,9 +221,24 @@ export function createRouter({
 
     switch (i.commandName) {
       case '연결': {
+        // 무명섬에 없는 닉네임이면 바로 선수 등록 창을 띄워요 (이미 연결된 사람은 빼고)
+        const nick = i.options.getString('게임닉네임');
+        const [known, linked] = await quick(Promise.all([service.playerByNickname(nick), service.playerByDiscord(i.user.id)]), 1500, ['?', null]);
+        if (!known && !linked) return i.showModal(registerModal({ name: displayName(i), nickname: nick }));
         await i.deferReply({ flags: EPHEMERAL });
-        const r = await service.requestLink({ discordId: i.user.id, discordName: displayName(i), nickname: i.options.getString('게임닉네임') });
+        const r = await service.requestLink({ discordId: i.user.id, discordName: displayName(i), nickname: nick });
         return i.editReply({ content: r.text });
+      }
+      case '등록': {
+        const linked = await quick(service.playerByDiscord(i.user.id));
+        if (linked) return i.reply(eph(`이미 '${linked.display_name}' 선수로 등록돼 있어요! 게임 닉네임이나 이름이 바뀌었다면 운영진에게 말해 주세요.`));
+        return i.showModal(registerModal({ name: displayName(i) }));
+      }
+      case '등록안내': {
+        if (!(await staffOnly(i))) return;
+        if (!(await canPost(i.channelId))) return i.reply(eph('봇이 이 채널에 글을 쓸 수 없어요. 채널 설정 → 권한에서 무명섬 봇에게 "채널 보기 · 메시지 보내기 · 링크 첨부"를 허용해 주세요.'));
+        await sendMessage(i.channelId, registerPanel({ siteUrl }));
+        return i.reply(eph('선수 등록 안내를 이 채널에 올렸어요! 누구나 버튼을 눌러 선수로 등록할 수 있어요. 고정해 두면 좋아요.'));
       }
       case '연결해제': {
         await i.deferReply({ flags: EPHEMERAL });
@@ -247,14 +304,34 @@ export function createRouter({
           return i.reply(eph([
             `📢 공지 · 알림 채널: ${cur.announce ? `<#${cur.announce}> (참가 공지 · 라운드 결과 자동 게시 켜짐)` : '아직 없어요 (명령어를 친 채널에 올라가요 · 참가 공지 · 라운드 결과 자동 게시는 꺼져 있어요)'}`,
             `⌨️ 명령어 채널: ${cur.commands ? `<#${cur.commands}>` : '정하지 않았어요 (어디서나 쓸 수 있어요)'}`,
-            '바꾸기: `/채널설정 공지` · `/채널설정 명령어` (채널을 안 고르면 지금 채널)'
+            `👋 새 인원 환영 채널: ${cur.welcome ? `<#${cur.welcome}>` : cur.announce ? `공지 채널과 같아요 (<#${cur.announce}>)` : '없어요 (공지 채널을 정하면 거기에 올라가요)'}`,
+            `🎖️ 1티어(오더) 역할: ${cur.tierRole ? `<@&${cur.tierRole}> (1티어 선수에게 자동으로 주고 빼요)` : '정하지 않았어요'}`,
+            '바꾸기: `/채널설정 공지` · `/채널설정 명령어` · `/채널설정 환영` · `/채널설정 역할` (채널을 안 고르면 지금 채널)'
           ].join('\n')));
         }
         if (sub === '명령어해제') {
           setChannels(store, gid, { commands: null });
           return i.reply(eph('명령어 채널 제한을 풀었어요. 이제 어느 채널에서나 명령어를 쓸 수 있어요.'));
         }
+        if (sub === '역할') {
+          const role = i.options.getRole?.('역할');
+          if (!role) return i.reply(eph('역할을 골라 주세요.'));
+          setChannels(store, gid, { tierRole: role.id });
+          await i.deferReply({ flags: EPHEMERAL });
+          const r = await syncTierRole();
+          return i.editReply({ content: `이제 무명섬 **1티어** 선수(디스코드 연결된 사람)에게 <@&${role.id}> 역할을 자동으로 줘요. 웹에서 티어를 바꾸면 3분 안에 주고 빼요.${r.failed ? `\n⚠️ ${r.failed}명은 역할을 바꾸지 못했어요. 서버 설정 → 역할에서 **무명섬 봇 역할을 이 역할보다 위로** 올리고, 봇에게 "역할 관리" 권한을 주세요.` : r.added || r.removed ? `\n지금 ${r.added}명에게 주고 ${r.removed}명에게서 뺐어요.` : ''}` });
+        }
+        if (sub === '역할해제') {
+          setChannels(store, gid, { tierRole: null });
+          store.update({ tierRoleGiven: [] });
+          return i.reply(eph('1티어 역할 자동 관리를 껐어요. 이미 준 역할은 그대로 남아요 (필요하면 서버 설정에서 빼 주세요).'));
+        }
         const ch = i.options.getChannel?.('채널')?.id || i.channelId;
+        if (sub === '환영') {
+          if (!(await canPost(ch))) return i.reply(eph(`봇이 <#${ch}> 에 글을 쓸 수 없어요. 그 채널 설정 → 권한에서 무명섬 봇에게 "채널 보기 · 메시지 보내기 · 링크 첨부"를 허용해 주세요.`));
+          setChannels(store, gid, { welcome: ch });
+          return i.reply(eph(`새 인원이 들어오면 <#${ch}> 에 @멘션 + [선수예요] [관계자예요] 안내가 올라가요. 고르거나 24시간이 지나면 지워져요. (디스코드 개발자 포털에서 Server Members Intent 가 켜져 있어야 해요)`));
+        }
         if (sub === '공지') {
           if (!(await canPost(ch))) return i.reply(eph(`봇이 <#${ch}> 에 글을 쓸 수 없어요. 그 채널 설정 → 권한에서 무명섬 봇에게 "채널 보기 · 메시지 보내기 · 링크 첨부"를 허용해 주세요.`));
           setChannels(store, gid, { announce: ch });
@@ -508,5 +585,48 @@ export function createRouter({
     }
   }
 
-  return { handle, refresh, refreshAll, announceResults, autoAnnounce, cleanupDeleted, closeDueVotes, cleanupEnded };
+  /** 새 인원이 들어오면 (index.js 의 GuildMemberAdd): 환영 채널에 @멘션 + 선수 · 관계자 버튼 */
+  async function welcome({ userId, bot = false, guild = guildId }) {
+    if (bot || (guildId && guild !== guildId)) return false;
+    if (await service.playerByDiscord(userId)) return false;   // 다시 들어온 선수
+    const cur = channelsOf(store, guild);
+    const channel = cur.welcome || cur.announce;
+    if (!channel) { log.warn('[새 인원] 환영 채널도 공지 채널도 없어서 안내를 못 올렸어요. /채널설정 환영 을 해 주세요'); return false; }
+    const m = await sendMessage(channel, welcomeMessage({ userId, siteUrl }));
+    store.update({ welcomes: [...(store.get().welcomes ?? []), { u: userId, c: m?.channelId ?? channel, m: m?.id, t: new Date(now()).toISOString() }].slice(-200) });
+    return true;
+  }
+
+  /** 24시간 지난 환영 메시지 지우기 */
+  async function cleanupWelcomes() {
+    const list = store.get().welcomes ?? [];
+    const old = list.filter((w) => now() - Date.parse(w.t) > WELCOME_KEEP_HOURS * 3600_000);
+    if (!old.length) return 0;
+    store.update({ welcomes: list.filter((w) => !old.includes(w)) });
+    for (const w of old) await dropPost(w.c, w.m);
+    return old.length;
+  }
+
+  /** 1티어(오더) 역할 맞추기: 연결된 1티어에게 주고, 티어가 바뀌거나 연결을 풀면 빼요 */
+  async function syncTierRole() {
+    const role = channelsOf(store, guildId).tierRole;
+    const out = { added: 0, removed: 0, failed: 0 };
+    if (!role) return out;
+    const plan = tierRolePlan({ links: await service.linkedTiers(), managed: store.get().tierRoleGiven ?? [] });
+    let lastError = null;
+    const apply = async (userId, on) => {
+      try {
+        const r = await setMemberRole(userId, role, on);
+        if (r === 'added') out.added++;
+        if (r === 'removed') out.removed++;
+      } catch (e) { out.failed++; lastError = e; }
+    };
+    for (const u of plan.add) await apply(u, true);
+    for (const u of plan.remove) await apply(u, false);
+    store.update({ tierRoleGiven: plan.managed });
+    if (lastError) log.warn(`[1티어 역할] ${out.failed}명 실패: ${lastError?.message ?? lastError} → 봇 역할을 1티어 역할보다 위로 올리고 "역할 관리" 권한을 주세요`);
+    return out;
+  }
+
+  return { handle, refresh, refreshAll, announceResults, autoAnnounce, cleanupDeleted, closeDueVotes, cleanupEnded, welcome, cleanupWelcomes, syncTierRole };
 }
