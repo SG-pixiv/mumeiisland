@@ -37,14 +37,27 @@ export const brand = html`<a class="brand" href="/" aria-label="무명섬 홈">
 
 const demoChip = isDemo ? html`<span class="demo-chip" title="Supabase 를 연결하면 진짜 데이터로 바뀌어요">예시 데이터</span>` : '';
 
-function publicHeader(active, vis) {
+/** 지금 주소에 ?preview=1 을 붙인 것 (선수 · 내전 페이지의 id 는 그대로) */
+function previewHref() {
+  const u = new URL(location.href);
+  u.searchParams.set('preview', '1');
+  return u.pathname + u.search;
+}
+
+function publicHeader(active, vis, me) {
   const link = (href) => (vis.preview ? href + '?preview=1' : href);
+  // 관리자로 로그인해 있으면 다시 로그인하지 않고 관리자 화면으로 (로그인은 이 브라우저에 계속 남아요)
+  const right = me?.admin
+    ? html`<span class="me">${auth.avatarUrl(me.user) ? html`<img src="${auth.avatarUrl(me.user)}" alt="">` : html`<span class="initial" aria-hidden="true">${auth.displayName(me.user).charAt(0)}</span>`}${auth.displayName(me.user)}</span>
+      ${!vis.public && !vis.preview ? html`<a class="btn ghost" href="${previewHref()}" title="공개 전인 기록을 관리자만 미리 봐요">기록 미리보기</a>` : ''}
+      <a class="btn sky" href="/admin">관리자 화면</a>`
+    : html`<a class="btn pink" href="/login">디스코드 로그인</a>`;
   return html`<header class="site-header">
     ${brand}
     <nav class="nav" aria-label="주요 메뉴">
       ${PUBLIC_NAV.filter(([, , , item]) => !item || vis[item]).map(([id, href, label]) => html`<a href="${link(href)}"${id === active ? raw(' aria-current="page"') : ''}>${label}</a>`)}
     </nav>
-    <span class="header-right">${demoChip}<a class="btn pink" href="/login">디스코드 로그인</a></span>
+    <span class="header-right">${demoChip}${right}</span>
   </header>`;
 }
 
@@ -58,10 +71,13 @@ export async function loadSiteSettings() {
   return rows[0] || DEFAULT_SETTINGS;
 }
 
-/** ?preview=1 + 관리자 로그인이면 비공개 기록도 미리 보여 줘요 */
-async function previewAllowed() {
-  if (qs('preview') !== '1') return false;
-  try { return !!(await auth.session()) && !!(await rpc('is_admin')); } catch { return false; }
+/** 이 브라우저에 로그인돼 있는지 · 관리자인지 (로그인 안 했으면 서버에 묻지 않아요) */
+async function whoAmI() {
+  try {
+    const session = await auth.session();
+    if (!session) return null;
+    return { user: session.user, admin: !!(await rpc('is_admin')) };
+  } catch { return null; }
 }
 
 /** 공개 설정에서 꺼 둔 기록 자리에 보여 줄 안내 */
@@ -76,10 +92,11 @@ export function lockedNotice(what = '이 기록') {
 
 export async function startPublic(active, render) {
   const app = document.getElementById('app');
-  const [settings, preview] = await Promise.all([loadSiteSettings(), previewAllowed()]);
-  const vis = visibility(settings, { preview });
-  const banner = preview ? html`<div class="notice" role="status" style="margin: 0 auto; max-width: 1180px; width: calc(100% - 32px)"><b>관리자 미리보기</b>&nbsp;· 공개 설정과 상관없이 모든 기록을 보여 주고 있어요. 다른 사람에게는 ${vis.public ? '기록 공개 설정대로' : '경쟁 기록이 안'} 보여요.</div>` : '';
-  mount(app, html`${publicHeader(active, vis)}${banner}<main id="main" class="page"><p class="loading">데이터 불러오는 중…</p></main>`);
+  const [settings, me] = await Promise.all([loadSiteSettings(), whoAmI()]);
+  // ?preview=1 + 관리자면 비공개 기록도 미리 보여 줘요
+  const vis = visibility(settings, { preview: qs('preview') === '1' && !!me?.admin });
+  const banner = vis.preview ? html`<div class="notice" role="status" style="margin: 0 auto; max-width: 1180px; width: calc(100% - 32px)"><b>관리자 미리보기</b>&nbsp;· 공개 설정과 상관없이 모든 기록을 보여 주고 있어요. 다른 사람에게는 ${vis.public ? '기록 공개 설정대로' : '경쟁 기록이 안'} 보여요.</div>` : '';
+  mount(app, html`${publicHeader(active, vis, me)}${banner}<main id="main" class="page"><p class="loading">데이터 불러오는 중…</p></main>`);
   const main = document.getElementById('main');
   try {
     await render(main, { vis, settings });
