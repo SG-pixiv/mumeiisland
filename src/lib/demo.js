@@ -75,11 +75,11 @@ function build() {
 
   const E = (n) => `00000000-0000-4000-9000-${String(n).padStart(12, '0')}`;
   const events = [
-    { id: E(1), title: '10월 17일 내전', season: 2, starts_at: iso('2026-10-17T20:00:00+09:00'), format: 'auto', planned_rounds: 2, max_players: 12, status: 'done', setting_code: 'MMS-1017', memo: null, teams_public: true, mvp_player_id: T(1), created_at: iso('2026-10-10T12:00:00+09:00') },
-    { id: E(2), title: '10월 24일 내전', season: 2, starts_at: iso('2026-10-24T20:00:00+09:00'), format: 'draft', planned_rounds: 3, max_players: 12, status: 'done', setting_code: 'MMS-1024', memo: null, teams_public: true, mvp_player_id: T(2), created_at: iso('2026-10-17T12:00:00+09:00') },
-    { id: E(3), title: '10월 31일 내전', season: 2, starts_at: iso('2026-10-31T20:00:00+09:00'), format: 'draft', planned_rounds: 4, max_players: 12, status: 'fixed', setting_code: 'MMS-1031', memo: '19:40까지 디스코드 대기방 입장', teams_public: true, mvp_player_id: null, created_at: iso('2026-10-24T23:00:00+09:00') },
-    { id: E(4), title: '11월 7일 내전', season: 2, starts_at: iso('2026-11-07T20:00:00+09:00'), format: 'auto', planned_rounds: 4, max_players: 12, status: 'open', setting_code: null, memo: '11월 5일까지 참가 신청', teams_public: false, mvp_player_id: null, created_at: iso('2026-10-26T18:40:00+09:00') },
-    { id: E(5), title: '11월 14일 내전', season: 2, starts_at: iso('2026-11-14T20:00:00+09:00'), format: 'draft', planned_rounds: 4, max_players: 12, status: 'plan', setting_code: null, memo: '참가 신청은 11월 8일부터', teams_public: false, mvp_player_id: null, created_at: iso('2026-10-26T18:40:00+09:00') }
+    { id: E(1), episode: 1, title: '10월 17일 내전', season: 2, starts_at: iso('2026-10-17T20:00:00+09:00'), format: 'auto', planned_rounds: 2, max_players: 12, status: 'done', setting_code: 'MMS-1017', memo: null, teams_public: true, mvp_player_id: T(1), created_at: iso('2026-10-10T12:00:00+09:00') },
+    { id: E(2), episode: 2, title: '10월 24일 내전', season: 2, starts_at: iso('2026-10-24T20:00:00+09:00'), format: 'draft', planned_rounds: 3, max_players: 12, status: 'done', setting_code: 'MMS-1024', memo: null, teams_public: true, mvp_player_id: T(2), created_at: iso('2026-10-17T12:00:00+09:00') },
+    { id: E(3), episode: 3, title: '10월 31일 내전', season: 2, starts_at: iso('2026-10-31T20:00:00+09:00'), format: 'draft', planned_rounds: 4, max_players: 12, status: 'fixed', setting_code: 'MMS-1031', memo: '19:40까지 디스코드 대기방 입장', teams_public: true, mvp_player_id: null, created_at: iso('2026-10-24T23:00:00+09:00') },
+    { id: E(4), episode: 4, title: '11월 7일 내전', season: 2, starts_at: iso('2026-11-07T20:00:00+09:00'), format: 'auto', planned_rounds: 4, max_players: 12, status: 'open', setting_code: null, memo: '11월 5일까지 참가 신청', teams_public: false, mvp_player_id: null, created_at: iso('2026-10-26T18:40:00+09:00') },
+    { id: E(5), episode: 5, title: '11월 14일 내전', season: 2, starts_at: iso('2026-11-14T20:00:00+09:00'), format: 'draft', planned_rounds: 4, max_players: 12, status: 'plan', setting_code: null, memo: '참가 신청은 11월 8일부터', teams_public: false, mvp_player_id: null, created_at: iso('2026-10-26T18:40:00+09:00') }
   ];
   const all = roster.map(([n]) => T(n));
   const event_participants = [
@@ -173,7 +173,9 @@ function build() {
   events.forEach((e) => { e.live_state = 'idle'; e.live_round = null; e.live_changed_at = null; });
   Object.assign(events.find((e) => e.id === E(2)), { live_state: 'ended', live_round: 4, live_changed_at: iso('2026-10-24T23:12:00+09:00') });
 
-  return { players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes, round_mvp_votes };
+  // 경쟁 기록 공개 설정 (예시는 다 보이게)
+  const site_settings = [{ id: 1, records_public: true, records_from_episode: 1, records_items: { results: { on: true, dash: true }, hall: { on: true, dash: true }, personal: { on: true, dash: true }, tk: { on: true }, mvp: { on: true } }, updated_at: iso('2026-10-29T12:00:00+09:00'), updated_by: 'demo-owner' }];
+  return { site_settings, players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes, round_mvp_votes };
 }
 
 export const tables = build();

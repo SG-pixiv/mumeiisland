@@ -1,5 +1,6 @@
 // 화면에서 쓰는 모양으로 데이터를 모아 주는 함수들
 import { select } from './db.js';
+import { withEpisodes, episodeResults, playerRecords, emptyRecord } from './records.js';
 
 function combine(rows, sfx = '') {
   const games = rows.reduce((s, r) => s + Number(r['games' + sfx] || 0), 0);
@@ -89,7 +90,7 @@ export async function loadEvents() {
   const [events, parts] = await Promise.all([select('events', { order: 'starts_at' }), select('event_participants')]);
   const counts = new Map();
   parts.forEach((p) => counts.set(p.event_id, (counts.get(p.event_id) || 0) + 1));
-  return events.map((e) => ({ ...e, joined: counts.get(e.id) || 0 }));
+  return withEpisodes(events).map((e) => ({ ...e, joined: counts.get(e.id) || 0 }));
 }
 
 export function nextEvent(events) {
@@ -158,6 +159,24 @@ export async function loadMatchList() {
     const rounds = Math.max(0, ...st.map((s) => Number(s.rounds)));
     return { ...e, winner, winnerMembers: winner ? members.get(winner.team_no) || [] : [], teams: st.length, rounds };
   });
+}
+
+/**
+ * 경쟁 기록 한 번에: 회차별 결과 · 선수별 기록 (from 회차부터 셈)
+ * 비공개면 로그인 안 한 사람은 라운드 기록을 못 읽어서 빈 결과가 와요 (12단계 SQL)
+ */
+export async function loadRecords({ from = 1 } = {}) {
+  const [events, standings, prounds, players, mvpRounds] = await Promise.all([
+    loadEvents(),
+    select('v_event_standings'),
+    select('v_player_rounds'),
+    loadPlayers({ includeInactive: true }),
+    select('rounds', { eq: { status: 'confirmed' }, columns: 'event_id, round_no, mvp_player_id' }).catch(() => [])   // 9단계 전이면 빈 목록
+  ]);
+  const { byId, list } = players;
+  const results = episodeResults({ events, standings, prounds, nameOf: (id) => byId.get(id)?.name });
+  const records = playerRecords({ results, prounds, mvpRounds, from });
+  return { events, results, records, prounds, mvpRounds, byId, list, recordOf: (id) => records.get(id) || emptyRecord(id) };
 }
 
 export async function loadScoring() {

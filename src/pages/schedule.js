@@ -30,7 +30,7 @@ startPublic('schedule', async (main) => {
       const dow = (startDow + d - 1) % 7;
       cells.push(html`<div style="min-height: 92px; border-radius: 18px; padding: 6px 8px; background: ${isToday ? 'var(--sky-soft)' : 'var(--card)'}; border: 2px solid ${isToday ? 'var(--sky-ink)' : 'var(--line)'}; display: grid; align-content: start; gap: 4px">
         <span class="num" style="font-size: 14px; color: ${dow === 0 ? 'var(--pink-ink)' : dow === 6 ? 'var(--sky-ink)' : 'var(--ink)'}">${d}${isToday ? ' 오늘' : ''}</span>
-        ${evs.map((e) => html`<span style="justify-self: start; font-family: var(--head); font-size: 12px; line-height: 1.3; background: ${EV_STYLE[e.status][0]}; border: 2px solid ${EV_STYLE[e.status][1]}; border-radius: 10px; padding: 2px 6px">${String(new Date(e.starts_at).getHours()).padStart(2, '0')}:${String(new Date(e.starts_at).getMinutes()).padStart(2, '0')} ${e.title.replace(/^\d+월 \d+일 /, '')}</span>`)}
+        ${evs.map((e) => html`<span style="justify-self: start; font-family: var(--head); font-size: 12px; line-height: 1.3; background: ${EV_STYLE[e.status][0]}; border: 2px solid ${EV_STYLE[e.status][1]}; border-radius: 10px; padding: 2px 6px">${String(new Date(e.starts_at).getHours()).padStart(2, '0')}:${String(new Date(e.starts_at).getMinutes()).padStart(2, '0')} ${e.episode ? e.episode + '회차' : e.title.replace(/^\d+월 \d+일 /, '')}</span>`)}
       </div>`);
     }
     return cells;
@@ -58,7 +58,7 @@ startPublic('schedule', async (main) => {
           <h2 id="up-title" style="font-family: var(--head); font-size: 24px">다가오는 내전</h2>
           ${upcoming.length ? upcoming.map((e) => html`<article class="card" style="gap: 10px; padding: 18px; border-radius: 24px; border-color: ${e.status === 'fixed' ? 'var(--pink)' : e.status === 'open' ? 'var(--sky)' : 'var(--line)'}">
             <div class="card-head" style="align-items: center"><span style="font-family: var(--head); font-size: 20px">${dateKo(e.starts_at)}</span><span style="font-family: var(--head); font-size: 14px; background: ${EV_STYLE[e.status][0]}; border: 2px solid ${EV_STYLE[e.status][1]}; border-radius: 999px; padding: 1px 12px">${STATUS_LABEL[e.status]}</span></div>
-            <span class="muted" style="font-size: 14px; font-weight: 600">${timeKo(e.starts_at)} · ${FORMAT_LABEL[e.format]} · ${e.planned_rounds}라운드</span>
+            <span class="muted" style="font-size: 14px; font-weight: 600">${e.episode ? e.episode + '회차 · ' : ''}${timeKo(e.starts_at)} · ${FORMAT_LABEL[e.format]} · ${e.planned_rounds}라운드</span>
             <div class="stack" style="gap: 6px"><div class="flex" style="justify-content: space-between; font-size: 13px; font-weight: 700"><span>참가 인원</span><span class="num">${e.joined} / ${e.max_players}</span></div>
               <div role="img" aria-label="${e.max_players}명 중 ${e.joined}명 참가" style="height: 12px; border-radius: 999px; background: var(--soft); border: 2px solid var(--ink); overflow: hidden"><div style="height: 100%; background: var(--sky); width: ${Math.min(100, Math.round((e.joined / e.max_players) * 100))}%"></div></div></div>
             ${e.setting_code ? html`<span class="chip sky" style="justify-self: start">설정 코드 <b class="num">${e.setting_code}</b></span>` : ''}

@@ -1,7 +1,7 @@
 // 디스코드에서 온 명령어 · 버튼 · 선택 메뉴를 처리해요.
 // discord.js 에 묶이지 않게 메시지 보내기 · 고치기는 바깥(index.js)에서 넣어 줘요 → 가짜로 테스트할 수 있어요.
 
-import { parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage, eventEnded } from './logic.js';
+import { parseId, autoAnnouncePlan, autoAnnounceText, INTRO_MODAL_ID, introDefaults, introModal, introMessage, eventEnded, RECORDS_OFF_TEXT } from './logic.js';
 import { memoryStore, channelsOf, setChannels } from './store.js';
 
 export const EPHEMERAL = 64;            // 나만 보이는 답장 (MessageFlags.Ephemeral)
@@ -99,15 +99,21 @@ export function createRouter({
       return 0;
     }
     const channel = channelsOf(store, guildId).announce;
+    const todo = rounds.filter((x) => done[x.id] !== x.confirmed_at).sort((a, b) => Date.parse(a.confirmed_at) - Date.parse(b.confirmed_at));
+    // 웹 기록 공개 설정: 비공개면 공지 · 투표를 쉬어요 (쉬는 동안 확정한 판도 표시해 둬서 나중에 켜도 한꺼번에 올라가지 않아요)
+    const vis = todo.length ? await service.recordsVisibility() : { results: false, mvp: false };
     let posted = 0;
-    for (const r of rounds.filter((x) => done[x.id] !== x.confirmed_at).sort((a, b) => Date.parse(a.confirmed_at) - Date.parse(b.confirmed_at))) {
-      if (channel) {
+    for (const r of todo) {
+      if (channel && !vis.results && vis.mvp && !done[r.id]) {
+        try { await openVote(r.id, channel); } catch (e) { log.warn(`[라운드 MVP] 투표를 열지 못했어요: ${e?.message ?? e}`); }
+      }
+      if (channel && vis.results) {
         const res = await service.roundResult(r.id, { edited: !!done[r.id] });
         if (res) {
           try { const m = await sendMessage(channel, res.payload); remember(res.event.id, 'result', m?.channelId ?? channel, m?.id); posted++; }
           catch (e) { log.warn(`[결과 공지] ${res.event.title} ${r.round_no}라운드를 올리지 못했어요: ${e?.message ?? e}`); if (!GONE.has(e?.code)) return posted; }
           // 처음 확정된 라운드면 MVP 투표도 바로 열어요 (30분 뒤 자동 마감)
-          if (!done[r.id]) {
+          if (!done[r.id] && vis.mvp) {
             try {
               const v = await openVote(r.id, channel);
               if (!v.ok && !v.already) log.info(`[라운드 MVP] ${res.event.title} ${r.round_no}라운드 투표를 열지 않았어요: ${v.text}`);
@@ -216,6 +222,7 @@ export function createRouter({
         await i.deferReply({ flags: EPHEMERAL });
         const roundNo = i.options.getInteger?.('라운드') ?? null;
         if (i.options.getSubcommand() === '시작') {
+          if (!(await service.recordsVisibility()).mvp) return i.editReply({ content: RECORDS_OFF_TEXT });
           const round = await service.pickVoteRound({ eventId, roundNo });
           if (!round) return i.editReply({ content: '투표를 열 라운드가 없어요. 결과 검토에서 라운드를 먼저 확정해 주세요.' });
           const ch = announceChannel(i);

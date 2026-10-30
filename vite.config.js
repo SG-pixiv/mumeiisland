@@ -7,9 +7,9 @@ const root = dirname(fileURLToPath(import.meta.url));
 
 // 사이트에 있는 모든 페이지 (html 파일 하나 = 페이지 하나)
 export const pages = [
-  'index', 'players', 'player', 'matches', 'match', 'schedule', 'draft', 'rules', 'login',
+  'index', 'players', 'player', 'matches', 'match', 'hall', 'records', 'schedule', 'draft', 'rules', 'login',
   'admin/index', 'admin/players', 'admin/tiers', 'admin/teams', 'admin/review',
-  'admin/schedule', 'admin/scoring', 'admin/access', 'admin/devices', 'admin/live',
+  'admin/schedule', 'admin/scoring', 'admin/records', 'admin/access', 'admin/devices', 'admin/live',
   'overlay/live', 'overlay/standings', 'overlay/result'
 ];
 

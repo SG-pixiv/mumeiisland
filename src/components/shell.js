@@ -1,12 +1,16 @@
 import '../styles/main.css';
-import { html, mount, raw, on, errorText } from '../lib/dom.js';
+import { html, mount, raw, on, errorText, qs } from '../lib/dom.js';
 import { isDemo } from '../lib/supabase.js';
 import { auth, rpc, select } from '../lib/db.js';
+import { visibility, DEFAULT_SETTINGS } from '../lib/records.js';
 
+// [id, 주소, 이름, 기록 공개 항목 (꺼져 있으면 메뉴에서 숨겨요)]
 const PUBLIC_NAV = [
-  ['home', '/', '홈'],
+  ['home', '/', '대시보드'],
   ['players', '/players', '선수'],
-  ['matches', '/matches', '내전 기록'],
+  ['matches', '/matches', '내전 기록', 'results'],
+  ['hall', '/hall', '우승 기록', 'hall'],
+  ['records', '/records', '개인 기록', 'personal'],
   ['schedule', '/schedule', '일정'],
   ['draft', '/draft', '팀 편성'],
   ['rules', '/rules', '규정']
@@ -21,6 +25,7 @@ const ADMIN_NAV = [
   ['schedule', '/admin/schedule', '일정 관리'],
   ['devices', '/admin/devices', '업로드 장치'],
   ['scoring', '/admin/scoring', '점수 규칙'],
+  ['records', '/admin/records', '기록 공개'],
   ['access', '/admin/access', '권한 관리'],
   ['live', '/admin/live', 'OBS 조종판']
 ];
@@ -32,11 +37,12 @@ export const brand = html`<a class="brand" href="/" aria-label="무명섬 홈">
 
 const demoChip = isDemo ? html`<span class="demo-chip" title="Supabase 를 연결하면 진짜 데이터로 바뀌어요">예시 데이터</span>` : '';
 
-function publicHeader(active) {
+function publicHeader(active, vis) {
+  const link = (href) => (vis.preview ? href + '?preview=1' : href);
   return html`<header class="site-header">
     ${brand}
     <nav class="nav" aria-label="주요 메뉴">
-      ${PUBLIC_NAV.map(([id, href, label]) => html`<a href="${href}"${id === active ? raw(' aria-current="page"') : ''}>${label}</a>`)}
+      ${PUBLIC_NAV.filter(([, , , item]) => !item || vis[item]).map(([id, href, label]) => html`<a href="${link(href)}"${id === active ? raw(' aria-current="page"') : ''}>${label}</a>`)}
     </nav>
     <span class="header-right">${demoChip}<a class="btn pink" href="/login">디스코드 로그인</a></span>
   </header>`;
@@ -46,12 +52,37 @@ export function errorBox(e) {
   return html`<div class="notice warn" role="alert"><span aria-hidden="true">!</span><span>앗, 데이터를 불러오지 못했어요. 잠시 뒤 새로고침해 주세요.<br><small class="muted">${errorText(e)}</small></span></div>`;
 }
 
+/** 기록 공개 설정 (12단계 SQL 전이거나 못 읽으면 비공개로 봐요) */
+export async function loadSiteSettings() {
+  const rows = await select('site_settings', { eq: { id: 1 } }).catch(() => []);
+  return rows[0] || DEFAULT_SETTINGS;
+}
+
+/** ?preview=1 + 관리자 로그인이면 비공개 기록도 미리 보여 줘요 */
+async function previewAllowed() {
+  if (qs('preview') !== '1') return false;
+  try { return !!(await auth.session()) && !!(await rpc('is_admin')); } catch { return false; }
+}
+
+/** 공개 설정에서 꺼 둔 기록 자리에 보여 줄 안내 */
+export function lockedNotice(what = '이 기록') {
+  return html`<section class="card" style="justify-items: center; text-align: center; gap: 10px; padding: 40px 24px">
+    <span aria-hidden="true" style="width: 64px; height: 64px; border-radius: 22px; display: grid; place-items: center; background: var(--soft); border: 2px solid var(--ink); transform: rotate(-4deg)"><svg width="30" height="30" viewBox="0 0 24 24"><path d="M6 11V8a6 6 0 0 1 12 0v3M5 11h14v10H5z" fill="none" stroke="#3A2440" stroke-width="2.2" stroke-linejoin="round"/></svg></span>
+    <h2 style="font-family: var(--head); font-size: 24px">${what}은 아직 비공개예요</h2>
+    <p class="muted" style="margin: 0; font-weight: 600">기록은 차곡차곡 쌓이는 중이에요. 운영진이 공개하면 여기에서 볼 수 있어요!</p>
+    <a class="btn" href="/">대시보드로</a>
+  </section>`;
+}
+
 export async function startPublic(active, render) {
   const app = document.getElementById('app');
-  mount(app, html`${publicHeader(active)}<main id="main" class="page"><p class="loading">데이터 불러오는 중…</p></main>`);
+  const [settings, preview] = await Promise.all([loadSiteSettings(), previewAllowed()]);
+  const vis = visibility(settings, { preview });
+  const banner = preview ? html`<div class="notice" role="status" style="margin: 0 auto; max-width: 1180px; width: calc(100% - 32px)"><b>관리자 미리보기</b>&nbsp;· 공개 설정과 상관없이 모든 기록을 보여 주고 있어요. 다른 사람에게는 ${vis.public ? '기록 공개 설정대로' : '경쟁 기록이 안'} 보여요.</div>` : '';
+  mount(app, html`${publicHeader(active, vis)}${banner}<main id="main" class="page"><p class="loading">데이터 불러오는 중…</p></main>`);
   const main = document.getElementById('main');
   try {
-    await render(main);
+    await render(main, { vis, settings });
   } catch (e) {
     console.error(e);
     mount(main, errorBox(e));

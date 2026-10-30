@@ -103,6 +103,7 @@ const seed = () => ({
     { user_id: 'U-SG', discord_id: 'D-SG', discord_name: 'SG', role: 'owner', registered_via: '소유자 키 (처음 한 번)', created_at: iso(-300), last_seen_at: iso(-30), revoked_at: null },
     { user_id: 'U-A', discord_id: 'D-A', discord_name: '운석', role: 'admin', registered_via: '봇 명령어로 받은 키', created_at: iso(-200), last_seen_at: null, revoked_at: null }
   ],
+  site_settings: [{ id: 1, records_public: true, records_from_episode: 1, records_items: {} }],
   rounds: [{ id: 'R1', event_id: 'E0', round_no: 1, status: 'confirmed', confirmed_at: iso(-7 * 24 + 1) }],
   v_round_team_scores: [
     { round_id: 'R2', team_no: 1, team_rank: 2, team_kills: 9, rs: 7, ks: 7.5, pen: 0, total: 14.5 },
@@ -447,6 +448,46 @@ test('라운드 결과 자동 공지: 처음엔 예전 판 건너뛰고, 확정�
   assert.match(r.payload.embeds[0].description, /\*\*1위\*\* 나딘 팀/);
   assert.equal(await s.service.roundResult('R-none'), null);
   assert.deepEqual([pts(3), pts(2.5), pts('7')], ['3', '2.5', '7']);
+});
+
+test('기록 비공개: 결과 공지 · MVP 투표를 쉬고, 다시 켜도 쉬는 동안의 판은 안 올려요', async () => {
+  const s = setup();
+  await s.run({ cmd: '채널설정', sub: '공지', admin: true, channels: { 채널: { id: 'C-ANN' } } });
+  await s.router.announceResults();                                  // 처음: 예전 판은 표시만
+  const settings = s.db.t.site_settings[0];
+  settings.records_public = false;
+  s.db.t.rounds.push({ id: 'R2', event_id: 'E0', round_no: 2, status: 'confirmed', confirmed_at: iso(-1), mvp_vote_status: 'none' });
+  assert.equal(await s.router.announceResults(), 0);
+  assert.equal(s.sent.length, 0, '비공개면 결과도 투표도 안 올려요');
+  assert.equal(s.db.t.rounds.find((r) => r.id === 'R2').mvp_vote_status, 'none');
+  assert.match(s.last(await s.run({ cmd: 'mvp', sub: '시작', admin: true })), /비공개라 라운드 MVP 투표를 쉬고/);
+
+  // 다시 공개: 쉬는 동안 확정한 R2 는 안 올라가고, 새로 확정한 판부터
+  settings.records_public = true;
+  for (const id of ['R3', 'R4', 'R5']) s.db.t.round_players.push(...s.db.t.round_players.filter((x) => x.round_id === 'R2').map((x) => ({ ...x, round_id: id })));
+  assert.equal(await s.router.announceResults(), 0);
+  s.db.t.rounds.push({ id: 'R3', event_id: 'E0', round_no: 3, status: 'confirmed', confirmed_at: iso(-0.5), mvp_vote_status: 'none' });
+  assert.equal(await s.router.announceResults(), 1);
+  assert.equal(s.sent.length, 2, '결과 + 투표');
+
+  // 내전 기록만 끄고 라운드 MVP 는 켜 두면 투표만
+  settings.records_items = { results: { on: false } };
+  s.db.t.rounds.push({ id: 'R4', event_id: 'E0', round_no: 4, status: 'confirmed', confirmed_at: iso(-0.4), mvp_vote_status: 'none' });
+  assert.equal(await s.router.announceResults(), 0);
+  assert.equal(s.sent.length, 3);
+  assert.equal(s.sent.at(-1).payload.components[0].components[0].custom_id, 'rmvp:R4');
+
+  // 라운드 MVP 만 끄면 결과만
+  settings.records_items = { mvp: { on: false } };
+  s.db.t.rounds.push({ id: 'R5', event_id: 'E0', round_no: 5, status: 'confirmed', confirmed_at: iso(-0.3), mvp_vote_status: 'none' });
+  assert.equal(await s.router.announceResults(), 1);
+  assert.equal(s.sent.length, 4);
+  assert.match(s.sent.at(-1).payload.embeds[0].title, /5라운드 결과/);
+
+  // 12단계 SQL 전(설정 표가 없음)이면 비공개로 봐요
+  delete s.db.t.site_settings;
+  s.db.from = ((orig) => (name) => (name === 'site_settings' ? { select: () => ({ eq: () => ({ maybeSingle: async () => ({ data: null, error: { code: '42P01', message: 'relation does not exist' } }) }) }) } : orig(name)))(s.db.from.bind(s.db));
+  assert.deepEqual(await s.service.recordsVisibility(), { results: false, mvp: false });
 });
 
 test('답장은 나만 보이게, 다른 서버에서는 안 돼요, 자동완성 · 지워진 메시지 정리', async () => {

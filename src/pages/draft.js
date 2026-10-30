@@ -14,7 +14,7 @@ startPublic('draft', async (main) => {
       return null;
     }
     const head = html`<div class="page-head"><div>
-      <h1>팀 편성 <span class="chip sky" style="font-family: var(--head); font-size: 17px">${ev.title}</span></h1>
+      <h1>팀 편성 <span class="chip sky" style="font-family: var(--head); font-size: 17px">${ev.episode ? ev.episode + '회차 · ' : ''}${ev.title}</span></h1>
       <p class="lead">운영진이 팀을 짜면 여기에 바로바로 떠요! 새로고침 안 해도 된답니다.</p></div>
       <span class="chip soft" style="font-family: var(--head); font-size: 15px">${FORMAT_LABEL[ev.format]} 방식</span></div>`;
 

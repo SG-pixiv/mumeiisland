@@ -4,7 +4,7 @@
 import {
   shortKst, pickSignupEvent, pickAnnounceEvent, pickMvpEvent, eventChoices,
   joinProblem, leaveProblem, roundVoteProblem, tally, signupMessage, roundResultMessage,
-  roundVoteMessage, roundMvpResultMessage, ROUND_VOTE_MINUTES
+  roundVoteMessage, roundMvpResultMessage, ROUND_VOTE_MINUTES, recordsVisibility
 } from './logic.js';
 
 /** 관리자 추가 · 해제를 할 수 있는 권한 (소유자 · 공동 소유자, DB 11단계) */
@@ -367,6 +367,12 @@ export function createService(db, { siteUrl = '', rng = Math.random, now = () =>
       // 공동 소유자를 빼면 관리자로 내려가요 (되돌려도 관리자)
       for (const r of rows) must(await db.from('admins').update(r.role === 'co_owner' ? { revoked_at: stamp, role: 'admin' } : { revoked_at: stamp }).eq('user_id', r.user_id));
       return { ok: true, text: `${targetName || rows[0].discord_name || '그 사람'} 님을 무명섬 관리자에서 뺐어요. 이제 관리자 화면에 못 들어가요.${keyNote}` };
+    },
+
+    /** 기록 공개 설정: { results, mvp } (12단계 SQL 전이거나 못 읽으면 둘 다 꺼짐) */
+    async recordsVisibility() {
+      const { data, error } = await db.from('site_settings').select('records_public, records_items').eq('id', 1).maybeSingle();
+      return recordsVisibility(error ? null : data);
     },
 
     /** 메시지 정리용: 지금 있는 내전 id 들 · DB 에 기록된 공지 · 투표 메시지 */

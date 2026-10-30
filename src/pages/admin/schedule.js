@@ -15,11 +15,10 @@ startAdmin('schedule', async (main) => {
   const reload = async () => {
     [events, { list: players }, parts] = await Promise.all([loadEvents(), loadPlayers(), select('event_participants')]);
   };
-  const toForm = (e) => ({ id: e.id, title: e.title, date: localDate(e.starts_at), time: localTime(e.starts_at), season: e.season, format: e.format, rounds: e.planned_rounds, max: e.max_players, status: e.status, code: e.setting_code || '', memo: e.memo || '', teamsPublic: e.teams_public, mvp: e.mvp_player_id || '' });
+  const toForm = (e) => ({ id: e.id, title: e.title, date: localDate(e.starts_at), time: localTime(e.starts_at), episode: e.episode ?? '', format: e.format, rounds: e.planned_rounds, max: e.max_players, status: e.status, code: e.setting_code || '', memo: e.memo || '', teamsPublic: e.teams_public, mvp: e.mvp_player_id || '' });
   const blank = () => {
-    const last = events[events.length - 1];
     const d = new Date(); d.setDate(d.getDate() + ((6 - d.getDay() + 7) % 7 || 7)); // 다음 토요일
-    return { id: null, title: '', date: localDate(d), time: '20:00', season: last?.season || 1, format: 'draft', rounds: 4, max: 24, status: 'plan', code: '', memo: '', teamsPublic: false, mvp: '' };
+    return { id: null, title: '', date: localDate(d), time: '20:00', episode: '', format: 'draft', rounds: 4, max: 24, status: 'plan', code: '', memo: '', teamsPublic: false, mvp: '' };
   };
 
   const draw = () => {
@@ -32,16 +31,16 @@ startAdmin('schedule', async (main) => {
       <div class="row">
         <section class="side stack" style="flex-basis: 280px"><h2 style="font-family: var(--head); font-size: 20px">내전 목록</h2>
           ${sorted.length ? sorted.map((e) => html`<button type="button" data-pick="${e.id}" aria-pressed="${f?.id === e.id}" class="card" style="cursor: pointer; text-align: left; padding: 12px 14px; border-radius: 22px; gap: 2px; ${f?.id === e.id ? 'background: var(--soft); border-color: var(--pink); box-shadow: 0 4px 0 var(--pink)' : ''}">
-            <span style="font-family: var(--head); font-size: 16px">${e.title}</span><small class="muted" style="font-weight: 600">${dateKo(e.starts_at)} ${localTime(e.starts_at)} · ${FORMAT_LABEL[e.format]} · ${e.joined} / ${e.max_players}명</small>
+            <span style="font-family: var(--head); font-size: 16px">${e.episode ? e.episode + '회차 · ' : ''}${e.title}</span><small class="muted" style="font-weight: 600">${dateKo(e.starts_at)} ${localTime(e.starts_at)} · ${FORMAT_LABEL[e.format]} · ${e.joined} / ${e.max_players}명</small>
             <span class="chip ${e.status === 'fixed' ? 'soft' : e.status === 'open' ? 'sky' : 'plain'}" style="justify-self: start; font-size: 12px; padding: 0 10px">${STATUS_LABEL[e.status]}</span></button>`) : html`<p class="empty">아직 일정이 없어요.</p>`}
         </section>
         ${f ? html`<section class="card ink grow"><form data-form class="stack" style="gap: 14px">
-          <h2>${f.id ? f.title : '새 내전'}</h2>
+          <h2>${f.id ? `${f.episode ? f.episode + '회차 · ' : ''}${f.title}` : '새 내전'}</h2>
           <div class="form-grid">
             <label class="field">날짜 <input type="date" name="date" required value="${f.date}"></label>
             <label class="field">시작 시간 <input type="time" name="time" required value="${f.time}"></label>
             <label class="field">이름 <input name="title" placeholder="비우면 '10월 31일 내전'처럼 자동" value="${f.title}"></label>
-            <label class="field">시즌 <input type="number" name="season" min="1" max="99" value="${f.season}"></label>
+            <label class="field">회차 <input type="number" name="episode" min="1" max="9999" value="${f.episode}" placeholder="자동 (${Math.max(0, ...events.map((x) => x.episode || 0)) + 1}회차)"><span class="hint">비우면 다음 번호가 붙어요</span></label>
             <label class="field">편성 방식 <select name="format">${Object.entries(FORMAT_LABEL).map(([v, l]) => html`<option value="${v}" ${f.format === v ? 'selected' : ''}>${l}</option>`)}</select></label>
             <label class="field">라운드 수 <input type="number" name="rounds" min="1" max="12" value="${f.rounds}"></label>
             <label class="field">최대 인원 <input type="number" name="max" min="3" max="24" step="3" value="${f.max}"></label>
@@ -85,11 +84,14 @@ startAdmin('schedule', async (main) => {
     const d = new Date(startsAt);
     const row = {
       title: fd.get('title').trim() || `${d.getMonth() + 1}월 ${d.getDate()}일 내전`,
-      starts_at: startsAt.toISOString(), season: Number(fd.get('season')) || 1, format: fd.get('format'),
+      starts_at: startsAt.toISOString(), format: fd.get('format'),
       planned_rounds: Number(fd.get('rounds')) || 4, max_players: Number(fd.get('max')) || 24, status: fd.get('status'),
       setting_code: fd.get('code').trim() || null, memo: fd.get('memo').trim() || null,
       teams_public: fd.get('teamsPublic') === 'on'
     };
+    // 회차: 새 내전은 비우면 자동, 고친 경우에만 보내요 (12단계 SQL 전에는 칸이 없어요)
+    const ep = String(fd.get('episode') || '').trim();
+    if (ep && ep !== String(state.form.episode)) row.episode = Math.max(1, Math.floor(Number(ep)) || 1);
     state.busy = true; draw();
     try {
       let id = state.form.id;
@@ -97,7 +99,12 @@ startAdmin('schedule', async (main) => {
       await reload();
       state.form = toForm(events.find((x) => x.id === id));
       toast('저장 완료! 공개 일정에 반영됐어요.');
-    } catch (err) { toast('저장하지 못했어요: ' + errorText(err), true); }
+    } catch (err) {
+      const msg = errorText(err);
+      toast(/events_episode_key/.test(msg) ? `${row.episode}회차는 이미 다른 내전이 쓰고 있어요. 다른 번호를 넣어 주세요.`
+        : /episode/.test(msg) ? 'Supabase SQL Editor 에서 12단계(20261030000000_records_privacy.sql)를 먼저 실행해 주세요.'
+        : '저장하지 못했어요: ' + msg, true);
+    }
     state.busy = false; draw();
   });
 

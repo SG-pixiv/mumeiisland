@@ -90,6 +90,17 @@ export function tally(votes, rng = Math.random) {
 export const ROUND_VOTE_MINUTES = 30;
 
 /**
+ * 웹 관리자 → 기록 공개 설정 (DB 12단계 site_settings)
+ * 비공개거나 설정을 못 읽으면 결과 공지 · MVP 투표를 쉬어요. 기록 저장은 그대로예요
+ */
+export function recordsVisibility(row) {
+  if (!row || !row.records_public) return { results: false, mvp: false };
+  const items = row.records_items || {};
+  return { results: items.results?.on !== false, mvp: items.mvp?.on !== false };
+}
+export const RECORDS_OFF_TEXT = '지금 무명섬 경쟁 기록이 비공개라 라운드 MVP 투표를 쉬고 있어요. 웹 관리자 → 기록 공개에서 켜면 다시 열 수 있어요.';
+
+/**
  * 라운드 MVP 투표를 할 수 있는지
  * voters: 투표할 수 있는 선수 id (내전 참가자 + 그 라운드에 뛴 선수), candidates: 후보 id (그 라운드에 뛴 선수)
  */
