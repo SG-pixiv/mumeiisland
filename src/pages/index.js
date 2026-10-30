@@ -62,7 +62,7 @@ startPublic('home', async (main, { vis }) => {
   // ── 경쟁 기록 (기록 공개 설정에서 대시보드에 띄우기로 한 것만)
   const onAir = events.filter((e) => (e.live_state === 'playing' || e.live_state === 'ended') && Date.now() - Date.parse(e.live_changed_at) < 12 * 3600000)
     .sort((a, b) => Date.parse(b.live_changed_at) - Date.parse(a.live_changed_at))[0];
-  const liveResult = vis.dash.results && onAir ? results.find((r) => r.event.id === onAir.id) : null;
+  const liveResult = vis.dash.results && onAir ? results.find((r) => r.event.id === onAir.id && r.episode >= vis.from) : null;
   const liveCard = liveResult
     ? html`<section class="card" style="border-color: var(--pink); box-shadow: 0 6px 0 var(--pink)" aria-labelledby="live-rank-title">
         <div class="card-head"><h2 id="live-rank-title" class="flex" style="gap: 10px">${episodeSticker(liveResult.event)}실시간 팀 순위 <span class="live sm">${onAir.live_state === 'playing' ? `${onAir.live_round || liveResult.rounds + 1}라운드 진행 중` : `${onAir.live_round || liveResult.rounds}라운드 끝`}</span></h2>
@@ -95,7 +95,7 @@ startPublic('home', async (main, { vis }) => {
       </section>`
     : '';
 
-  const recent = results[0] || null;
+  const recent = results.find((r) => r.episode >= vis.from) || null;   // 집계 시작 회차 전은 대시보드에 안 띄워요
   const recentCard = vis.dash.results
     ? html`<section class="card" style="flex: 1 1 400px" aria-labelledby="recent-title">
         <div class="card-head"><h2 id="recent-title" class="flex" style="gap: 10px">${recent ? episodeSticker(recent.event) : ''}최근 결과</h2>${recent ? html`<span class="muted" style="font-size: 13px; font-weight: 600">${dateKo(recent.event.starts_at, false)} · ${recent.rounds}라운드 누적${recent.finished ? '' : ' · 진행 중'}</span>` : ''}</div>
