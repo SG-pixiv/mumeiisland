@@ -181,7 +181,35 @@ function build() {
 
   // 경쟁 기록 공개 설정 (예시는 다 보이게)
   const site_settings = [{ id: 1, records_public: true, records_from_episode: 1, records_items: { results: { on: true, dash: true }, hall: { on: true, dash: true }, personal: { on: true, dash: true }, tk: { on: true }, mvp: { on: true } }, updated_at: iso('2026-10-29T12:00:00+09:00'), updated_by: 'demo-owner' }];
-  return { site_settings, players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes, round_mvp_votes };
+  // 블서로그 (13단계): 공개 중 · 이번 주 기록 몇 개 · KEL 팀 · 소식 · 피드백
+  const rogue_settings = [{ id: 1, live: true, scores_open: true, feedback_open: true, game_url: 'https://bseorogue.vercel.app', versions: [], max_wave: 50, min_sec_per_wave: 15, max_party: 3, cap_nickname: 5, cap_ip: 20, banned_words: [], updated_at: iso('2026-11-02T12:00:00+09:00'), updated_by: 'demo-owner' }];
+  const kel = [['Seongnam ROX', '성남'], ['INCHEON WAVE', '인천'], ['DAEJEON AutoArms', '대전'], ['FN SEJONG', '세종'], ['Gyeonggi Innate', '경기'], ['Chungnam CNJ esports', '충남'], ['GyeongBuk Ascenders', '경북'], ['Daegu Guardians', '대구'],
+    ['GJ Slasher', '광주'], ['GC Busan Stella', '부산'], ['New Rise Gangwon', '강원'], ['Gyeongnam Sparkle Esports', '경남'], ['YJ Whales', '양주'], ['Goyang Mir', '고양'], ['Jeju Shadow', '제주'], ['Jeonnam Esports', '전남']];
+  const kelPicks = { 1: [50, 21, 16], 2: [22, 1, 2], 15: [45, 57, 18] };
+  const rogue_teams = kel.map(([name, region], i) => ({ id: i + 1, name, region, logo_url: '', members: kelPicks[i + 1] || [], sort: i + 1, active: true, updated_at: iso('2026-11-02T12:00:00+09:00'), updated_by: null }));
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600000).toISOString();
+  const kstWeek = (ts) => { const k = new Date(Date.parse(ts) + 9 * 3600000); k.setUTCDate(k.getUTCDate() - ((k.getUTCDay() + 6) % 7)); return k.toISOString().slice(0, 10); };
+  const rogue_scores = [
+    ['루미팬1호', 50, 2140, true, [50, 21, 16], 1], ['큐잡는중', 50, 2385, true, [22, 50, 2], 2], ['일레븐장인', 44, 1990, false, [50, 1, 22], 3],
+    ['큐잡는중', 38, 1600, false, [22, 50, 2], 4], ['혜진사랑', 31, 1310, false, [22, 18, 45], 5], ['초보생존자', 12, 520, false, [21], 6],
+    ['나딘원딜', 27, 1105, false, [16, 57, 2], 7], ['어뷰징의심', 50, 760, true, [1], 8],
+    ['지난주1등', 50, 2050, true, [21, 16, 22], 200], ['지난주2등', 41, 1800, false, [50, 2, 1], 230]
+  ].map(([nickname, wave, seconds, cleared, party, h], i) => {
+    const created_at = hoursAgo(h);
+    return { id: i + 1, nickname, nick_key: nickname.toLowerCase(), wave, seconds, cleared, party, version: '0.1.0', mode: 'classic', run_id: null, created_at, kst_day: created_at.slice(0, 10), week_start: kstWeek(created_at), ip_hash: null,
+      hidden: nickname === '어뷰징의심', hidden_at: nickname === '어뷰징의심' ? hoursAgo(7) : null, hidden_by: nickname === '어뷰징의심' ? 'demo-owner' : null, hidden_reason: nickname === '어뷰징의심' ? '50웨이브를 12분에 깸' : null };
+  });
+  const rogue_news = [
+    { id: 1, title: '블서로그 v0.1 첫 공개!', body: '시작 실험체 6명 (일레븐 · 유키 · 쇼이치 · 나딘 · 혜진 · 레니)\n클래식 50웨이브 · 10웨이브마다 보스\n랭킹은 무명섬 블서로그 페이지에서 볼 수 있어요.', pinned: true, published: true, created_at: hoursAgo(20), updated_at: hoursAgo(20), updated_by: 'demo-owner' },
+    { id: 2, title: '보스 체력 조정', body: '오메가 체력을 조금 줄였어요.', pinned: false, published: true, created_at: hoursAgo(3), updated_at: hoursAgo(3), updated_by: 'demo-owner' },
+    { id: 3, title: '다음 업데이트 예고 (작성 중)', body: '', pinned: false, published: false, created_at: hoursAgo(1), updated_at: hoursAgo(1), updated_by: 'demo-owner' }
+  ];
+  const rogue_feedback = [
+    { id: 1, kind: 'bug', body: '30웨이브 감마전에서 스킬 쓰면 화면이 멈춰요', nickname: '큐잡는중', version: '0.1.0', source: 'game', status: 'new', memo: '', created_at: hoursAgo(2), kst_day: '', ip_hash: null },
+    { id: 2, kind: 'idea', body: '무한 모드도 랭킹에 넣어 주세요!', nickname: '', version: '', source: 'web', status: 'new', memo: '', created_at: hoursAgo(5), kst_day: '', ip_hash: null },
+    { id: 3, kind: 'balance', body: '나딘이 너무 약해요', nickname: '나딘원딜', version: '0.1.0', source: 'web', status: 'read', memo: '다음 패치에서 볼게요', created_at: hoursAgo(30), kst_day: '', ip_hash: null }
+  ];
+  return { rogue_settings, rogue_teams, rogue_scores, rogue_news, rogue_feedback, site_settings, players, player_private, player_rank_stats, er_characters, tier_history, events, event_participants, event_teams, drafts, rounds, round_teams, round_players, scoring_rules, admins, admin_keys, admin_grants, upload_devices, discord_link_requests, bot_status, bot_messages, mvp_votes, round_mvp_votes };
 }
 
 export const tables = build();

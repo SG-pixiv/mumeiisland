@@ -14,7 +14,8 @@ const PAGES = [
   '/hall', '/records', '/schedule', '/draft', `/draft?id=${E(3)}`, '/rules', '/?preview=1', '/hall?preview=1',
   '/overlay/live', '/overlay/standings', '/overlay/result', `/overlay/standings?event=${E(2)}`,
   '/admin', '/admin/players', '/admin/tiers', '/admin/teams', '/admin/review', '/admin/schedule', '/admin/scoring',
-  '/admin/records', '/admin/access', '/admin/devices', '/admin/live'
+  '/admin/records', '/admin/access', '/admin/devices', '/admin/live',
+  '/rogue', '/admin/rogue', '/admin/rogue?tab=teams', '/admin/rogue?tab=scores', '/admin/rogue?tab=news', '/admin/rogue?tab=feedback'
 ];
 const POLL = new Set(['/draft', `/draft?id=${E(3)}`, '/overlay/live', '/overlay/standings', '/overlay/result', '/admin', '/admin/live']);
 (async () => {
@@ -32,6 +33,7 @@ const POLL = new Set(['/draft', `/draft?id=${E(3)}`, '/overlay/live', '/overlay/
     const read = () => p.evaluate(() => {
       document.getElementById('countdown')?.replaceChildren();
       const app = document.getElementById('app');
+      if (!app) return { text: '(페이지 없음)', elements: 0, net: null };
       return { text: app.innerText.replace(/[ \t]+/g, ' ').trim(), elements: app.querySelectorAll('*').length, net: window.__mumeiNet ? JSON.parse(JSON.stringify(window.__mumeiNet)) : null };
     });
     const first = await read();

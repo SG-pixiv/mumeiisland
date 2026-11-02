@@ -118,8 +118,44 @@ export async function remove(table, eq) {
   check(await q);
 }
 
+// ── 파일 올리기 (공개 저장소). 예시 모드에서는 브라우저 안에서만 보이는 주소를 돌려줘요
+export async function uploadPublic(bucket, path, file) {
+  if (isDemo) {
+    return await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = () => reject(new Error('파일을 읽지 못했어요'));
+      r.readAsDataURL(file);
+    });
+  }
+  const { error } = await supabase.storage.from(bucket).upload(path, file, { upsert: true, contentType: file.type || undefined, cacheControl: '3600' });
+  if (error) throw error;
+  return supabase.storage.from(bucket).getPublicUrl(path).data.publicUrl;
+}
+
 // ── 서버 함수 (SQL 함수 · Edge Function)
+// 예시 모드 블서로그 랭킹 (DB 의 rogue_board 와 같은 계산)
+function demoRogueBoard({ p_scope = 'week', p_limit = 50 }) {
+  const k = new Date(Date.now() + 9 * 3600000); k.setUTCDate(k.getUTCDate() - ((k.getUTCDay() + 6) % 7));
+  const week = k.toISOString().slice(0, 10);
+  const better = (a, b) => b.wave - a.wave || a.seconds - b.seconds || String(a.created_at).localeCompare(String(b.created_at));
+  const best = new Map();
+  for (const r of (tables.rogue_scores || []).filter((x) => !x.hidden && x.mode === 'classic' && (p_scope !== 'week' || x.week_start === week)).sort(better)) {
+    if (!best.has(r.nick_key)) best.set(r.nick_key, r);
+  }
+  return [...best.values()].sort(better).slice(0, Math.max(1, Math.min(p_limit, 100)))
+    .map((r, i) => ({ rank: i + 1, nickname: r.nickname, wave: r.wave, seconds: r.seconds, cleared: r.cleared, party: r.party, created_at: r.created_at }));
+}
+
 const demoRpc = {
+  rogue_board: demoRogueBoard,
+  rogue_feedback_send: ({ p_kind, p_body, p_nickname, p_version, p_source }) => {
+    const body = String(p_body || '').trim();
+    if (body.length < 2) throw new Error('내용을 적어 주세요');
+    const id = Date.now();
+    (tables.rogue_feedback ||= []).unshift({ id, kind: p_kind, body, nickname: String(p_nickname || '').trim(), version: p_version || '', source: p_source === 'game' ? 'game' : 'web', status: 'new', memo: '', created_at: new Date().toISOString(), kst_day: '', ip_hash: null });
+    return id;
+  },
   is_admin: () => true,
   is_owner: () => true,
   is_primary_owner: () => true,

@@ -12,7 +12,7 @@ const SELF_REGISTER_MEMO = '디스코드로 직접 등록 (3티어)';
 
 startAdmin('home', async (main, { user }) => {
  const render = async () => {
-  const [events, { list, byId }, pending, admins, devices, links, linked, bot, grants, site, tierLog] = await Promise.all([
+  const [events, { list, byId }, pending, admins, devices, links, linked, bot, grants, site, tierLog, rogue, rogueNew] = await Promise.all([
     loadEvents(), loadPlayers({ includeInactive: true }),
     select('rounds', { eq: { status: 'pending' } }), select('admins'),
     select('upload_devices').catch(() => null),   // 2단계 SQL 실행 전이면 null
@@ -21,7 +21,9 @@ startAdmin('home', async (main, { user }) => {
     select('bot_status').catch(() => []),
     select('admin_grants', { columns: 'discord_id' }).catch(() => null),   // 8단계 SQL 실행 전이면 null
     select('site_settings', { eq: { id: 1 } }).catch(() => null),   // 12단계 SQL 실행 전이면 null
-    select('tier_history', { order: 'changed_at', asc: false }).catch(() => [])
+    select('tier_history', { order: 'changed_at', asc: false }).catch(() => []),
+    select('rogue_settings', { eq: { id: 1 }, columns: 'live' }).catch(() => null),   // 13단계 SQL 실행 전이면 null
+    select('rogue_feedback', { eq: { status: 'new' }, columns: 'id' }).catch(() => [])
   ]);
   const discordOf = new Map((linked || []).filter((r) => r.discord_id).map((r) => [r.player_id, r.discord_id]));
   const botSeen = bot?.[0]?.last_seen_at;
@@ -57,6 +59,8 @@ startAdmin('home', async (main, { user }) => {
     grants === null && ['관리자 바로 추가용 DB 추가하기', 'Supabase SQL Editor 에서 20261029000000_admin_grants.sql 을 실행해 주세요 (README 16번)', '/admin/access', '확인'],
     !liveReady(events) && ['방송 오버레이용 DB 추가하기', 'Supabase SQL Editor 에서 20261028100000_overlay.sql 을 실행해 주세요 (README 15번)', '/admin/live', '확인'],
     !site?.length && ['회차 · 기록 공개 설정용 DB 추가하기', 'Supabase SQL Editor 에서 20261030000000_records_privacy.sql 을 실행해 주세요 (README 20번). 그 전까지 공개 사이트는 경쟁 기록을 숨겨요', '/admin/records', '확인'],
+    !rogue?.length && ['블서로그용 DB 추가하기', 'Supabase SQL Editor 에서 20261102000000_bseorogue.sql 을 실행해 주세요 (README 23번). 랭킹 · KEL 팀 · 소식 · 피드백을 쓸 수 있어요', '/admin/rogue', '확인'],
+    rogueNew.length && [`블서로그 새 피드백 ${rogueNew.length}개`, '버그 · 아이디어 · 밸런스 의견이 들어왔어요', '/admin/rogue?tab=feedback', '읽기'],
     site?.length && !site[0].records_public && ['경쟁 기록 비공개 중', '내전 결과 · 우승 기록 · 개인 기록 · TK · MVP 가 공개 사이트에서 숨겨져 있어요. 기록은 계속 쌓여요', '/admin/records', '기록 공개']
   ].filter(Boolean);
   const newCard = selfRegistered.length ? html`<section class="card ink"><div class="card-head"><h2>디스코드로 새로 등록한 선수 ${selfRegistered.length}명</h2><small class="muted" style="font-weight: 600">봇의 등록 창 · 3티어로 시작해요</small></div>
