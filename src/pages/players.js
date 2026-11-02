@@ -5,7 +5,7 @@ import { avatar, tierChip, liveBadge, pct, num, chzzkUrl, STAR } from '../lib/fm
 import { emptyRecord } from '../lib/records.js';
 
 startPublic('players', async (main, { vis }) => {
-  const data = vis.personal ? await loadRecords({ from: vis.from }) : await loadPlayers();
+  const data = vis.personal ? await loadRecords({ from: vis.from }) : await loadPlayers({ stats: false });
   const list = data.list.filter((p) => p.active);
   const recOf = (id) => (vis.personal ? data.recordOf(id) : emptyRecord(id));
   const state = { tier: 0, liveOnly: false };

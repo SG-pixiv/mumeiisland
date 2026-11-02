@@ -7,7 +7,10 @@ import { leaders, rankOrder, withGap } from '../lib/records.js';
 import { leaderCard, memberChips, memberNames, episodeSticker, standingsTable } from '../components/records-ui.js';
 
 startPublic('home', async (main, { vis }) => {
-  const [events, data] = await Promise.all([loadEvents(), vis.any ? loadRecords({ from: vis.from }) : loadPlayers({ includeInactive: true })]);
+  // 기록을 공개하면 loadRecords 가 일정까지 같이 가져와요 (두 번 받지 않게)
+  const [events, data] = vis.any
+    ? await loadRecords({ from: vis.from }).then((r) => [r.events, r])
+    : await Promise.all([loadEvents(), loadPlayers({ includeInactive: true, stats: false })]);
   const { byId } = data;
   const list = (data.list || []).filter((p) => p.active);
   const next = nextEvent(events);

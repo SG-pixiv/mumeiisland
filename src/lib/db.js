@@ -24,6 +24,20 @@ function check({ data, error }) {
 /**
  * select('players', { eq: { active: true }, order: 'display_name', asc: true, limit: 10 })
  */
+// 예시 모드 계량기: 페이지가 DB 에서 몇 번 · 얼마나 받는지 (window.__mumeiNet, 검수용)
+function meter(table, rows) {
+  const net = (globalThis.__mumeiNet ||= { queries: 0, bytes: 0, tables: {} });
+  const n = JSON.stringify(rows).length;
+  net.queries++; net.bytes += n;
+  net.tables[table] = (net.tables[table] || 0) + n;
+}
+/** columns 로 고른 칸만 남겨요 (진짜 DB 처럼) */
+function project(rows, columns) {
+  if (!columns || columns.trim() === '*') return rows;
+  const keys = columns.split(',').map((c) => c.trim()).filter(Boolean);
+  return rows.map((r) => Object.fromEntries(keys.map((k) => [k, r[k] === undefined ? null : r[k]])));
+}
+
 export async function select(table, opts = {}) {
   const { order, asc = true, limit, columns = '*' } = opts;
   if (isDemo) {
@@ -31,6 +45,8 @@ export async function select(table, opts = {}) {
     let rows = applyFilters(base, opts);
     if (order) rows = rows.slice().sort((a, b) => (a[order] > b[order] ? 1 : a[order] < b[order] ? -1 : 0) * (asc ? 1 : -1));
     if (limit) rows = rows.slice(0, limit);
+    rows = project(rows, columns);
+    meter(table, rows);
     return clone(rows);
   }
   const build = () => {

@@ -8,3 +8,4 @@ supabase/.branches
 dist-uploader
 .cache
 bot/data
+scripts/qa/*.json

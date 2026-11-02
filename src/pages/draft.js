@@ -6,8 +6,10 @@ import { dateKo, timeKo, FORMAT_LABEL, tierDot, lockIcon } from '../lib/fmt.js';
 startPublic('draft', async (main) => {
   const eventId = qs('id');
 
+  let prevBoard = null;   // 10초마다 다시 그릴 때 선수 목록은 다시 안 받아요
   const render = async () => {
-    const b = await loadTeamsBoard(eventId);
+    const b = await loadTeamsBoard(eventId, { reuse: prevBoard });
+    prevBoard = b;
     const ev = b.event;
     if (!ev) {
       mount(main, html`<div class="page-head"><div><h1>팀 편성</h1><p class="lead">아직 잡힌 내전이 없어요. 일정이 생기면 여기서 팀 편성을 볼 수 있어요!</p></div></div>`);

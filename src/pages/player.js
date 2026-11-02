@@ -7,7 +7,9 @@ import { historyRow } from '../components/records-ui.js';
 
 startPublic('players', async (main, { vis }) => {
   const id = qs('id');
-  const [data, recs] = await Promise.all([id ? loadPlayerDetail(id) : null, id && vis.personal ? loadRecords({ from: vis.from }) : null]);
+  // 개인 기록을 공개하면 loadRecords 한 번으로 선수 · 판 기록을 같이 써요 (두 번 받지 않게)
+  const recs = id && vis.personal ? await loadRecords({ from: vis.from }) : null;
+  const data = id ? await loadPlayerDetail(id, { records: recs, rounds: false }) : null;
   if (!data) {
     mount(main, html`<a class="btn ghost" href="/players" style="justify-self: start">← 선수 목록</a><p class="empty">앗, 이 선수를 찾지 못했어요.</p>`);
     return;

@@ -47,18 +47,29 @@ export function normPlayer(row, rank, statRows = [], season = null) {
   };
 }
 
+// ── 받는 양 줄이기: 화면에서 쓰는 칸만 받아요 (전부 1단계부터 있는 칸이라 SQL 단계와 상관없어요)
+// 이리 API 원본(raw)은 화면에서 안 써서 빼요 (선수마다 수 KB)
+const RANK_COLUMNS = 'player_id, season_id, rank_score, rank_games, rank_wins, top_characters, synced_at, sync_error';
+// 판별 선수 기록: 기록 계산 · 내전 결과 · 선수 페이지가 쓰는 칸
+const ROUND_COLUMNS = 'event_id, round_no, played_at, player_id, csv_nickname, team_no, team_rank, team_kills, character_name, kills, assists, rs, ks, total';
+
 export async function currentSeason() {
   const ev = await select('events', { order: 'season', asc: false, limit: 1 });
   return ev[0]?.season ?? 1;
 }
 
-export async function loadPlayers({ includeInactive = false } = {}) {
+/**
+ * 선수 목록
+ * stats: 예전 시즌 통계(v_player_stats) · 라운드 MVP 횟수까지 받을지. 관리자 티어 화면만 써요.
+ *        공개 페이지는 회차 기록(loadRecords)을 쓰니까 false 로 불러서 안 받아요
+ */
+export async function loadPlayers({ includeInactive = false, stats: withStats = true } = {}) {
   const [rows, ranks, stats, season, mvps] = await Promise.all([
     select('players', includeInactive ? { order: 'display_name' } : { eq: { active: true }, order: 'display_name' }),
-    select('player_rank_stats'),
-    select('v_player_stats'),
-    currentSeason(),
-    select('v_player_round_mvp').catch(() => [])   // 9단계 SQL 전이면 빈 목록
+    select('player_rank_stats', { columns: RANK_COLUMNS }),
+    withStats ? select('v_player_stats') : [],
+    withStats ? currentSeason() : null,
+    withStats ? select('v_player_round_mvp').catch(() => []) : []   // 9단계 SQL 전이면 빈 목록
   ]);
   const rankBy = new Map(ranks.map((r) => [r.player_id, r]));
   const mvpBy = new Map(mvps.map((m) => [m.player_id, Number(m.round_mvp) || 0]));
@@ -66,10 +77,17 @@ export async function loadPlayers({ includeInactive = false } = {}) {
   return { list, byId: new Map(list.map((p) => [p.id, p])), season };
 }
 
-export async function loadPlayerDetail(id) {
-  const [{ byId, season }, rounds, history] = await Promise.all([
-    loadPlayers({ includeInactive: true }),
-    select('v_player_rounds', { eq: { player_id: id }, order: 'played_at', asc: false }),
+/**
+ * 선수 페이지
+ * records: 이미 불러온 loadRecords 결과가 있으면 선수 · 판 기록을 다시 받지 않아요
+ * rounds: false 면 판 기록을 안 받아요 (개인 기록 비공개일 때)
+ */
+export async function loadPlayerDetail(id, { records = null, rounds: withRounds = true } = {}) {
+  const byDate = (a, b) => Date.parse(b.played_at) - Date.parse(a.played_at);
+  const [{ byId, season = null }, rounds, history] = await Promise.all([
+    records ? { byId: records.byId } : loadPlayers({ includeInactive: true, stats: false }),
+    records ? records.prounds.filter((r) => r.player_id === id).sort(byDate)
+      : withRounds ? select('v_player_rounds', { eq: { player_id: id }, order: 'played_at', asc: false, columns: ROUND_COLUMNS }) : [],
     select('tier_history', { eq: { player_id: id }, order: 'changed_at', asc: false })
   ]);
   const player = byId.get(id);
@@ -87,7 +105,7 @@ export async function loadPlayerDetail(id) {
 }
 
 export async function loadEvents() {
-  const [events, parts] = await Promise.all([select('events', { order: 'starts_at' }), select('event_participants')]);
+  const [events, parts] = await Promise.all([select('events', { order: 'starts_at' }), select('event_participants', { columns: 'event_id' })]);   // 인원만 세요
   const counts = new Map();
   parts.forEach((p) => counts.set(p.event_id, (counts.get(p.event_id) || 0) + 1));
   return withEpisodes(events).map((e) => ({ ...e, joined: counts.get(e.id) || 0 }));
@@ -127,9 +145,9 @@ export async function loadEventDetail(id) {
     select('events', { eq: { id } }),
     select('v_round_team_scores', { eq: { event_id: id } }),
     select('v_event_standings', { eq: { event_id: id } }),
-    select('v_player_rounds', { eq: { event_id: id } }),
+    select('v_player_rounds', { eq: { event_id: id }, columns: ROUND_COLUMNS }),
     select('event_teams', { eq: { event_id: id } }),
-    loadPlayers({ includeInactive: true }),
+    loadPlayers({ includeInactive: true, stats: false }),
     select('rounds', { eq: { event_id: id, status: 'confirmed' }, columns: 'id, round_no, mvp_player_id, mvp_vote_result' }).catch(() => [])   // 9단계 전이면 빈 목록
   ]);
   if (!ev) return null;
@@ -147,8 +165,8 @@ export async function loadMatchList() {
     loadEvents(),
     select('v_event_standings'),
     select('event_teams'),
-    select('v_player_rounds'),
-    loadPlayers({ includeInactive: true })
+    select('v_player_rounds', { columns: ROUND_COLUMNS }),
+    loadPlayers({ includeInactive: true, stats: false })
   ]);
   const played = events.filter((e) => standings.some((s) => s.event_id === e.id))
     .sort((a, b) => new Date(b.starts_at) - new Date(a.starts_at));
@@ -169,8 +187,8 @@ export async function loadRecords({ from = 1 } = {}) {
   const [events, standings, prounds, players, mvpRounds] = await Promise.all([
     loadEvents(),
     select('v_event_standings'),
-    select('v_player_rounds'),
-    loadPlayers({ includeInactive: true }),
+    select('v_player_rounds', { columns: ROUND_COLUMNS }),
+    loadPlayers({ includeInactive: true, stats: false }),
     select('rounds', { eq: { status: 'confirmed' }, columns: 'event_id, round_no, mvp_player_id' }).catch(() => [])   // 9단계 전이면 빈 목록
   ]);
   const { byId, list } = players;
@@ -184,7 +202,25 @@ export async function loadScoring() {
   return s || { placement: [10, 7, 5, 4, 3, 2, 1, 0], ks_early: 0.5, ks_late: 1, penalty: 1 };
 }
 
-export async function loadTeamsBoard(eventId) {
+/**
+ * 팀 편성 · 드래프트 화면
+ * reuse: 10초마다 다시 부를 때 지난 결과를 넘기면 선수 목록 · 일정 목록은 다시 받지 않고,
+ *        이 내전의 팀 · 드래프트 · 참가자만 새로 받아요 (처음 보는 참가자가 생기면 전부 다시)
+ */
+export async function loadTeamsBoard(eventId, { reuse = null } = {}) {
+  if (reuse?.event) {
+    const id = reuse.event.id;
+    const [[row], teams, drafts, parts] = await Promise.all([
+      select('events', { eq: { id } }),
+      select('event_teams', { eq: { event_id: id } }),
+      select('drafts', { eq: { event_id: id } }),
+      select('event_participants', { eq: { event_id: id } })
+    ]);
+    if (row && parts.every((p) => reuse.byId.has(p.player_id))) {
+      const event = { ...reuse.event, ...row, episode: row.episode ?? reuse.event.episode, joined: parts.length };
+      return boardOf(event, teams, drafts, parts, reuse.byId);
+    }
+  }
   const events = await loadEvents();
   const ev = eventId ? events.find((e) => e.id === eventId) : nextEvent(events.filter((e) => e.teams_public)) || nextEvent(events);
   if (!ev) return { event: null };
@@ -192,9 +228,12 @@ export async function loadTeamsBoard(eventId) {
     select('event_teams', { eq: { event_id: ev.id } }),
     select('drafts', { eq: { event_id: ev.id } }),
     select('event_participants', { eq: { event_id: ev.id } }),
-    loadPlayers({ includeInactive: true })
+    loadPlayers({ includeInactive: true, stats: false })
   ]);
+  return boardOf(ev, teams, drafts, parts, byId);
+}
+function boardOf(event, teams, drafts, parts, byId) {
   // slotTier: 이번 내전에서 들어가는 티어 자리 (일정마다 바꿀 수 있어요. 비어 있으면 선수 티어)
   const participants = parts.map((p) => { const pl = byId.get(p.player_id); return pl ? { ...pl, slotTier: p.slot_tier || pl.tier } : null; }).filter(Boolean);
-  return { event: ev, teams, draft: drafts[0] || null, participants, byId };
+  return { event, teams, draft: drafts[0] || null, participants, byId };
 }

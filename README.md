@@ -301,6 +301,18 @@ MVP 는 라운드마다 디스코드 투표로 뽑고, 선수 MVP 횟수는 라�
 - `/채널설정 역할 @1티어` 를 해 두면 디스코드가 연결된 **1티어 선수에게 역할을 자동으로** 주고, 티어가 바뀌면 3분 안에 빼요
 - 설정: 개발자 포털 → Bot → **SERVER MEMBERS INTENT** 켜기, 봇 역할에 **역할 관리** + 1티어 역할보다 위로 → 오라클에서 `git pull && cd bot && npm run register && pm2 restart mumei-bot` (자세히: bot/README.md "새 인원 안내 · 선수 등록 · 1티어 역할")
 
+### 22. 받는 양 줄이기 · 고칠 때 검수 순서
+Supabase 무료 플랜은 한 달에 받는 양(egress)이 5GB 라서, 화면에서 쓰는 것만 받게 줄여 뒀어요 (SQL · 봇 업데이트 없음).
+- 이리 API 원본(raw)은 안 받아요 · 공개 페이지는 예전 시즌 통계를 안 받아요 · 판 기록은 쓰는 칸만
+- 대시보드 · 선수 페이지에서 같은 걸 두 번 받지 않아요
+- 드래프트 10초 갱신은 팀 · 지명 · 참가자만, 오버레이는 최근 30일 일정 · 마지막 판 팀원만
+
+화면이 바뀌지 않았는지 확인하는 순서 (`scripts/qa`):
+1. 고치기 전에 `npm run build` → `npx vite preview --port 4179` → `node scripts/qa/snap.cjs before`
+2. 고친 뒤 다시 build · preview → `node scripts/qa/snap.cjs after`
+3. `node scripts/qa/diff.cjs before after` → "모든 페이지가 같아요" 가 나와야 해요 (공개 · 관리자 · 오버레이 30쪽, 10초 갱신 뒤까지 비교)
+- 예시 모드의 `select` 는 `columns` 로 고른 칸만 돌려줘서, 칸을 빠뜨리면 화면이 달라져 바로 잡혀요
+
 ## 내 컴퓨터에서 고치면서 보기
 ```powershell
 npm install
