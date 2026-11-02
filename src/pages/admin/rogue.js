@@ -45,14 +45,14 @@ startAdmin('rogue', async (main) => {
       <div class="flex" style="gap: 18px; justify-content: space-between">
         <span style="display: grid; gap: 4px; flex: 1 1 320px">
           <span class="flex" style="gap: 10px"><h2 style="margin: 0">블서로그 공개</h2><span class="chip ${settings.live ? 'ok' : 'warn'}">${settings.live ? '지금 공개 중' : '지금 비공개'}</span></span>
-          <span class="muted" style="font-weight: 600">켜면 모든 사람에게 헤더 오른쪽 블서로그 칸 · 블서로그 페이지(랭킹 · 소식 · 피드백)가 보여요. 끄면 관리자에게만 보여요.</span>
+          <span class="muted" style="font-weight: 600">켜면 공개 사이트 메뉴 끝에 "블서로그" 한 칸이 생기고, 블서로그 페이지(랭킹 · 소식 · 피드백)가 모두에게 보여요. 끄면 공개 사이트에는 아무것도 안 보이고, 관리자만 위의 "블서로그 페이지 보기"로 미리 봐요.</span>
         </span>
         <button class="btn big ${settings.live ? '' : 'pink'}" type="button" data-live ${state.busy ? 'disabled' : ''}>${settings.live ? '비공개로 바꾸기' : '공개하기'}</button>
       </div>
     </section>
     <form class="card" data-settings style="gap: 16px">
       <h2 style="margin: 0">게임 연결</h2>
-      <label class="field">게임 주소<input name="game_url" type="url" placeholder="https://bseorogue.vercel.app" value="${settings.game_url}"><span class="hint">헤더의 "하러 가기" 버튼과 블서로그 페이지가 이 주소로 열려요. 비워 두면 버튼이 안 보여요.</span></label>
+      <label class="field">게임 주소<input name="game_url" type="url" placeholder="https://bseorogue.vercel.app" value="${settings.game_url}"><span class="hint">블서로그 페이지의 "하러 가기" 버튼이 이 주소로 열려요. 비워 두면 버튼이 안 보여요.</span></label>
       <div class="flex" style="gap: 18px">
         <label class="flex" style="gap: 8px; font-weight: 700; min-height: 44px"><input type="checkbox" name="scores_open" ${settings.scores_open ? 'checked' : ''} style="width: 22px; height: 22px; accent-color: var(--pink-ink)">게임에서 랭킹 기록 받기</label>
         <label class="flex" style="gap: 8px; font-weight: 700; min-height: 44px"><input type="checkbox" name="feedback_open" ${settings.feedback_open ? 'checked' : ''} style="width: 22px; height: 22px; accent-color: var(--pink-ink)">피드백 받기</label>
@@ -194,7 +194,7 @@ startAdmin('rogue', async (main) => {
     mount(main, html`
       <div class="flex" style="justify-content: space-between; gap: 12px; align-items: flex-end">
         <div><h1>블서로그</h1><p class="lead">블서로그 공개 · 랭킹 기록 · KEL 팀 · 업데이트 소식 · 피드백을 관리해요.</p></div>
-        <a class="btn ghost" href="/rogue" target="_blank" rel="noopener">블서로그 페이지 보기</a>
+        <a class="btn ghost" href="/rogue" target="_blank" rel="noopener">블서로그 페이지 ${settings.live ? '보기' : '미리보기'}</a>
       </div>
       <div class="pills" role="group" aria-label="블서로그 관리">${TABS.map(([k, label]) => html`<button type="button" data-tab="${k}" aria-pressed="${state.tab === k}">${label}${k === 'feedback' && fresh ? html` <span class="badge">${fresh}</span>` : ''}</button>`)}</div>
       ${views[state.tab]()}`);

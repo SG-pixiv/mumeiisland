@@ -68,48 +68,6 @@ img { max-width: 100%; }
 .me { display: inline-flex; align-items: center; gap: 8px; color: var(--ink); font-weight: 700; }
 .me img, .me .initial { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--pink); object-fit: cover; display: grid; place-items: center; font-family: var(--head); background: var(--soft); }
 
-/* 공개 헤더: 왼쪽 무명섬 · 오른쪽 블서로그 */
-.site-header.split { padding: 0; gap: 0; flex-wrap: nowrap; align-items: stretch; }
-.split .hz-main { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 14px 28px; padding: 14px 28px; }
-.split .hz-rogue {
-  --rogue: #241E3A;
-  flex: 0 0 auto; display: flex; align-items: center; gap: 12px; padding: 12px 22px;
-  background: var(--rogue); color: #fff; border-left: 3px solid var(--ink);
-  background-image: radial-gradient(rgba(143, 223, 245, 0.16) 1.5px, transparent 2px); background-size: 16px 16px;
-}
-.rogue-badge {
-  width: 48px; height: 48px; flex: none; display: grid; place-items: center; border-radius: 15px; transform: rotate(4deg);
-  background: var(--sky); color: var(--ink); border: 2.5px solid #fff; box-shadow: 2px 3px 0 var(--pink); font-family: var(--head); font-size: 15px;
-}
-.rogue-body { display: grid; gap: 4px; }
-.rogue-title { display: inline-flex; align-items: center; gap: 8px; font-family: var(--head); font-size: 22px; line-height: 1.1; }
-.rogue-links { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.rogue-chip { font-family: var(--body, inherit); font-size: 12px; font-weight: 700; color: var(--ink); background: #FFE58A; border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
-.rogue-link {
-  color: #fff; text-decoration: none; font-family: var(--head); font-size: 15px; border: 2px solid rgba(255, 255, 255, 0.35); border-radius: 999px;
-  padding: 2px 12px; min-height: 36px; display: inline-flex; align-items: center; white-space: nowrap;
-}
-.rogue-link:hover { background: rgba(255, 255, 255, 0.12); }
-.rogue-link[aria-current="page"] { background: var(--pink); color: var(--ink); border-color: #fff; box-shadow: 0 3px 0 #fff; }
-.btn.rogue-play { background: var(--sky); border-color: #fff; box-shadow: 0 3px 0 #fff; }
-.hz-rogue :focus-visible { outline-color: #FFE58A; }
-/* 노트북 화면: 블서로그 칸이 옆에 붙어도 무명섬 메뉴가 한 줄에 들어가게 조금씩 줄여요 */
-@media (min-width: 1181px) and (max-width: 1500px) {
-  .split .hz-main { gap: 10px 16px; padding: 12px 18px; }
-  .split .hz-main .nav a { padding: 7px 7px; }
-  .split .rogue-badge { width: 42px; height: 42px; }
-  .split .wordmark { font-size: 34px; }
-  .split .brand { gap: 10px; }
-  .split .brand-badge { width: 52px; height: 52px; }
-  .split .hz-rogue { padding: 10px 16px; gap: 10px; }
-}
-@media (max-width: 1180px) {
-  .site-header.split { flex-wrap: wrap; }
-  .split .hz-rogue { flex: 1 1 100%; border-left: 0; border-top: 3px solid var(--ink); padding: 8px 28px; }
-  .rogue-badge { width: 40px; height: 40px; font-size: 13px; }
-  .rogue-body { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
-}
-
 /* ───────── 버튼 · 칩 ───────── */
 .btn {
   font-family: var(--head); font-size: 16px; color: var(--ink); text-decoration: none; cursor: pointer;
@@ -280,7 +238,6 @@ span.lock { cursor: default; width: 30px; height: 30px; }
 
 @media (max-width: 640px) {
   .site-header { padding: 12px 16px; }
-  .split .hz-main, .split .hz-rogue { padding: 10px 16px; }
   .page, .admin-wrap { padding: 24px 16px 60px; }
   .hero { padding: 24px; border-radius: 28px; }
   .hero h1, .hero h2.big, .page-head h1 { font-size: 34px; }

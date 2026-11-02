@@ -1,5 +1,5 @@
 import '../styles/main.css';
-import { html, mount, raw, on, errorText, qs, safeUrl } from '../lib/dom.js';
+import { html, mount, raw, on, errorText, qs } from '../lib/dom.js';
 import { isDemo } from '../lib/supabase.js';
 import { auth, rpc, select } from '../lib/db.js';
 import { visibility, DEFAULT_SETTINGS } from '../lib/records.js';
@@ -46,23 +46,6 @@ function previewHref() {
   return u.pathname + u.search;
 }
 
-/** 헤더 오른쪽 블서로그 칸: 공개됐거나 관리자일 때만 (13단계 SQL 전이면 없음) */
-function rogueZone(active, rogue, me) {
-  if (!rogue || !(rogue.live || me?.admin)) return '';
-  const here = active === 'rogue';
-  const play = safeUrl(rogue.game_url);
-  return html`<nav class="hz-rogue" aria-label="블서로그">
-    <span class="rogue-badge" aria-hidden="true">블서</span>
-    <span class="rogue-body">
-      <span class="rogue-title">블서로그${!rogue.live ? html`<span class="rogue-chip" title="관리자에게만 보여요. 관리자 → 블서로그 에서 공개해요">준비 중</span>` : ''}</span>
-      <span class="rogue-links">
-        <a class="rogue-link" href="/rogue"${here ? raw(' aria-current="page"') : ''}>랭킹 · 소식</a>
-        ${play ? html`<a class="btn sm rogue-play" href="${play}" target="_blank" rel="noopener">하러 가기 <span aria-hidden="true">↗</span></a>` : ''}
-      </span>
-    </span>
-  </nav>`;
-}
-
 function publicHeader(active, vis, me, rogue) {
   const link = (href) => (vis.preview ? href + '?preview=1' : href);
   // 관리자로 로그인해 있으면 다시 로그인하지 않고 관리자 화면으로 (로그인은 이 브라우저에 계속 남아요)
@@ -71,16 +54,14 @@ function publicHeader(active, vis, me, rogue) {
       ${!vis.public && !vis.preview ? html`<a class="btn ghost" href="${previewHref()}" title="공개 전인 기록을 관리자만 미리 봐요">기록 미리보기</a>` : ''}
       <a class="btn sky" href="/admin">관리자 화면</a>`
     : html`<a class="btn pink" href="/login">디스코드 로그인</a>`;
-  // 헤더를 좌우로 나눠요: 왼쪽 무명섬 · 오른쪽 블서로그
-  return html`<header class="site-header split">
-    <div class="hz-main">
-      ${brand}
-      <nav class="nav" aria-label="주요 메뉴">
-        ${PUBLIC_NAV.filter(([, , , item]) => !item || vis[item]).map(([id, href, label]) => html`<a href="${link(href)}"${id === active ? raw(' aria-current="page"') : ''}>${label}</a>`)}
-      </nav>
-      <span class="header-right">${demoChip}${right}</span>
-    </div>
-    ${rogueZone(active, rogue, me)}
+  // 블서로그는 관리자 → 블서로그 에서 공개했을 때만 메뉴 끝에 한 칸 (공개 전에는 공개 사이트 어디에도 안 보여요)
+  const rogueLink = rogue?.live ? html`<a href="/rogue"${active === 'rogue' ? raw(' aria-current="page"') : ''}>블서로그</a>` : '';
+  return html`<header class="site-header">
+    ${brand}
+    <nav class="nav" aria-label="주요 메뉴">
+      ${PUBLIC_NAV.filter(([, , , item]) => !item || vis[item]).map(([id, href, label]) => html`<a href="${link(href)}"${id === active ? raw(' aria-current="page"') : ''}>${label}</a>`)}${rogueLink}
+    </nav>
+    <span class="header-right">${demoChip}${right}</span>
   </header>`;
 }
 
@@ -115,7 +96,7 @@ export function lockedNotice(what = '이 기록') {
 
 export async function startPublic(active, render) {
   const app = document.getElementById('app');
-  const [settings, me, rogue] = await Promise.all([loadSiteSettings(), whoAmI(), loadRogueSettings('live, game_url')]);
+  const [settings, me, rogue] = await Promise.all([loadSiteSettings(), whoAmI(), loadRogueSettings('live, game_url, feedback_open')]);
   // ?preview=1 + 관리자면 비공개 기록도 미리 보여 줘요
   const vis = visibility(settings, { preview: qs('preview') === '1' && !!me?.admin });
   const banner = vis.preview ? html`<div class="notice" role="status" style="margin: 0 auto; max-width: 1180px; width: calc(100% - 32px)"><b>관리자 미리보기</b>&nbsp;· 공개 설정과 상관없이 모든 기록을 보여 주고 있어요. 다른 사람에게는 ${vis.public ? '기록 공개 설정대로' : '경쟁 기록이 안'} 보여요.</div>` : '';

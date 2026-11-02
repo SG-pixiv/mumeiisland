@@ -181,8 +181,8 @@ function build() {
 
   // 경쟁 기록 공개 설정 (예시는 다 보이게)
   const site_settings = [{ id: 1, records_public: true, records_from_episode: 1, records_items: { results: { on: true, dash: true }, hall: { on: true, dash: true }, personal: { on: true, dash: true }, tk: { on: true }, mvp: { on: true } }, updated_at: iso('2026-10-29T12:00:00+09:00'), updated_by: 'demo-owner' }];
-  // 블서로그 (13단계): 공개 중 · 이번 주 기록 몇 개 · KEL 팀 · 소식 · 피드백
-  const rogue_settings = [{ id: 1, live: true, scores_open: true, feedback_open: true, game_url: 'https://bseorogue.vercel.app', versions: [], max_wave: 50, min_sec_per_wave: 15, max_party: 3, cap_nickname: 5, cap_ip: 20, banned_words: [], updated_at: iso('2026-11-02T12:00:00+09:00'), updated_by: 'demo-owner' }];
+  // 블서로그 (13단계): 미공개 (관리자만 봐요) · 이번 주 기록 몇 개 · KEL 팀 · 소식 · 피드백
+  const rogue_settings = [{ id: 1, live: false, scores_open: true, feedback_open: true, game_url: 'https://bseorogue.vercel.app', versions: [], max_wave: 50, min_sec_per_wave: 15, max_party: 3, cap_nickname: 5, cap_ip: 20, banned_words: [], updated_at: iso('2026-11-02T12:00:00+09:00'), updated_by: 'demo-owner' }];
   const kel = [['Seongnam ROX', '성남'], ['INCHEON WAVE', '인천'], ['DAEJEON AutoArms', '대전'], ['FN SEJONG', '세종'], ['Gyeonggi Innate', '경기'], ['Chungnam CNJ esports', '충남'], ['GyeongBuk Ascenders', '경북'], ['Daegu Guardians', '대구'],
     ['GJ Slasher', '광주'], ['GC Busan Stella', '부산'], ['New Rise Gangwon', '강원'], ['Gyeongnam Sparkle Esports', '경남'], ['YJ Whales', '양주'], ['Goyang Mir', '고양'], ['Jeju Shadow', '제주'], ['Jeonnam Esports', '전남']];
   const kelPicks = { 1: [50, 21, 16], 2: [22, 1, 2], 15: [45, 57, 18] };
