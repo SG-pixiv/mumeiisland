@@ -2,7 +2,7 @@ import { startPublic } from '../components/shell.js';
 import { html, mount, on, toast, errorText, safeUrl } from '../lib/dom.js';
 import { select, rpc } from '../lib/db.js';
 import { dateKo, shortDate } from '../lib/fmt.js';
-import { loadBoard, loadCharacterNames, playTime, weekStartKst, FEEDBACK_KINDS } from '../lib/rogue.js';
+import { loadBoard, loadCharacterNames, playTime, weekStartKst, FEEDBACK_KINDS, rogueTierName } from '../lib/rogue.js';
 
 const SOURCE_URL = 'https://github.com/SG-pixiv/bseorogue';
 const NICK_KEY = 'mumei.rogue.nick';
@@ -47,12 +47,13 @@ startPublic('rogue', async (main, { rogue, me }) => {
     const rows = boards[state.scope];
     if (!rows) return html`<p class="loading">랭킹 불러오는 중…</p>`;
     if (!rows.length) return html`<p class="empty">${state.scope === 'week' ? '아직 이번 주 기록이 없어요. 첫 1등의 주인공이 되어 보세요!' : '아직 기록이 없어요.'}</p>`;
-    return html`<div class="table-wrap"><table class="data" style="min-width: 560px"><thead><tr>
-        <th>#</th><th>닉네임</th><th class="r">웨이브</th><th class="r">시간</th><th>파티</th><th class="r">날짜</th>
+    return html`<div class="table-wrap"><table class="data" style="min-width: 620px"><thead><tr>
+        <th>#</th><th>닉네임</th><th>티어</th><th class="r">웨이브</th><th class="r">시간</th><th>파티</th><th class="r">날짜</th>
       </tr></thead><tbody>
       ${rows.map((r) => html`<tr>
         <td><span class="num">${r.rank}</span></td>
         <td><b>${r.nickname}</b></td>
+        <td><span class="chip" style="padding: 0 8px; white-space: nowrap">${rogueTierName(r.tier)}</span></td>
         <td class="r"><span class="num">${r.wave}</span>${r.cleared ? html` <span class="chip ok" style="padding: 0 8px">클리어</span>` : ''}</td>
         <td class="r"><span class="num">${playTime(r.seconds)}</span></td>
         <td style="font-size: 13px; font-weight: 600">${party(r.party)}</td>
@@ -75,7 +76,7 @@ startPublic('rogue', async (main, { rogue, me }) => {
               <button type="button" data-scope="all" aria-pressed="${state.scope === 'all'}">역대</button>
             </div>
           </div>
-          <p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">${state.scope === 'week' ? `${dateKo(weekFrom + 'T00:00:00+09:00')}부터 · 매주 월요일 0시에 새로 시작해요.` : '지금까지 기록 전부예요.'} 클래식 최고 웨이브 → 짧은 시간 순이고, 닉네임마다 가장 좋은 기록 하나만 보여요.</p>
+          <p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">${state.scope === 'week' ? `${dateKo(weekFrom + 'T00:00:00+09:00')}부터 · 매주 월요일 0시에 새로 시작해요.` : '지금까지 기록 전부예요.'} 높은 티어 → 높은 웨이브 → 짧은 시간 순이고, 닉네임마다 가장 좋은 기록 하나만 보여요. 티어는 게임에서 클리어할수록 열려요.</p>
           ${boardView()}
         </section>
 

@@ -134,17 +134,17 @@ export async function uploadPublic(bucket, path, file) {
 }
 
 // ── 서버 함수 (SQL 함수 · Edge Function)
-// 예시 모드 블서로그 랭킹 (DB 의 rogue_board 와 같은 계산)
+// 예시 모드 블서로그 랭킹 (DB 의 rogue_board 와 같은 계산: 티어 → 웨이브 → 시간)
 function demoRogueBoard({ p_scope = 'week', p_limit = 50 }) {
   const k = new Date(Date.now() + 9 * 3600000); k.setUTCDate(k.getUTCDate() - ((k.getUTCDay() + 6) % 7));
   const week = k.toISOString().slice(0, 10);
-  const better = (a, b) => b.wave - a.wave || a.seconds - b.seconds || String(a.created_at).localeCompare(String(b.created_at));
+  const better = (a, b) => (b.tier || 0) - (a.tier || 0) || b.wave - a.wave || a.seconds - b.seconds || String(a.created_at).localeCompare(String(b.created_at));
   const best = new Map();
   for (const r of (tables.rogue_scores || []).filter((x) => !x.hidden && x.mode === 'classic' && (p_scope !== 'week' || x.week_start === week)).sort(better)) {
     if (!best.has(r.nick_key)) best.set(r.nick_key, r);
   }
   return [...best.values()].sort(better).slice(0, Math.max(1, Math.min(p_limit, 100)))
-    .map((r, i) => ({ rank: i + 1, nickname: r.nickname, wave: r.wave, seconds: r.seconds, cleared: r.cleared, party: r.party, created_at: r.created_at }));
+    .map((r, i) => ({ rank: i + 1, nickname: r.nickname, tier: r.tier || 0, wave: r.wave, seconds: r.seconds, cleared: r.cleared, party: r.party, created_at: r.created_at }));
 }
 
 const demoRpc = {

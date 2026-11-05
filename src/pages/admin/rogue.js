@@ -2,10 +2,10 @@ import { startAdmin } from '../../components/shell.js';
 import { html, mount, on, toast, errorText, qs, safeUrl } from '../../lib/dom.js';
 import { select, update, insert, remove, uploadPublic } from '../../lib/db.js';
 import { dateTimeShort, dateKo } from '../../lib/fmt.js';
-import { ROGUE_DEFAULTS, FEEDBACK_KINDS, FEEDBACK_STATUS, playTime, splitList, weekStartKst } from '../../lib/rogue.js';
+import { ROGUE_DEFAULTS, ROGUE_LEAGUES, FEEDBACK_KINDS, FEEDBACK_STATUS, playTime, rogueTierName, splitList, weekStartKst } from '../../lib/rogue.js';
 
 const NEED_13 = 'Supabase SQL Editor 에서 20261102000000_bseorogue.sql (13단계)을 먼저 실행해 주세요.';
-const TABS = [['settings', '공개 · 설정'], ['teams', 'KEL 팀'], ['scores', '랭킹 기록'], ['news', '업데이트 소식'], ['feedback', '피드백']];
+const TABS = [['settings', '공개 · 설정'], ['teams', '팀 (KEL · 마스터즈)'], ['scores', '랭킹 기록'], ['news', '업데이트 소식'], ['feedback', '피드백']];
 const KIND = Object.fromEntries(FEEDBACK_KINDS);
 const LOGO_MAX = 1024 * 1024;
 // 로고 미리보기: 인터넷 주소 · 예시 모드에서 올린 그림만
@@ -79,17 +79,29 @@ startAdmin('rogue', async (main) => {
     ${chars.map((c) => html`<option value="${c.code}" ${Number(c.code) === code ? 'selected' : ''}>${c.name_ko}</option>`)}
   </select>`;
 
+  // 14단계 SQL 을 돌렸으면 팀마다 리그가 있어요
+  const hasLeague = () => teams.some((t) => 'league' in t);
+  const leagueSelect = (value) => html`<select name="league" aria-label="리그" style="flex: 0 1 110px; min-width: 0">
+    ${ROGUE_LEAGUES.map(([k, label]) => html`<option value="${k}" ${value === k ? 'selected' : ''}>${label}</option>`)}
+  </select>`;
+  const teamGroups = () => hasLeague()
+    ? ROGUE_LEAGUES.map(([k, label]) => [label, teams.filter((t) => (t.league || 'kel') === k)])
+    : [['KEL', teams]];
+
   const teamsView = () => html`
     <section class="card" style="gap: 12px">
-      <div><h2 style="margin: 0">KEL 팀</h2><p class="muted" style="margin: 4px 0 0; font-size: 13px; font-weight: 600">게임에서 적 팀으로 나와요. 팀마다 실험체 3명과 로고를 정하고 줄마다 저장해요. 끄면 게임에 안 나와요.</p></div>
+      <div><h2 style="margin: 0">팀 (KEL · 마스터즈)</h2><p class="muted" style="margin: 4px 0 0; font-size: 13px; font-weight: 600">게임에서 적 팀으로 나와요. 1~20웨이브 팀 전투는 마스터즈 팀, 21웨이브부터는 KEL 팀이에요. 팀마다 실험체 3명과 로고를 정하고 줄마다 저장해요. 끄면 게임에 안 나와요.</p></div>
       ${!chars.length ? html`<p class="notice warn">실험체 목록이 비어 있어요. 선수 관리에서 이리 데이터를 한 번 동기화하면 채워져요.</p>` : ''}
+      ${!hasLeague() && teams.length ? html`<p class="notice warn">무명섬 14단계 SQL 을 실행하면 마스터즈 팀을 나눠서 관리할 수 있어요. 지금은 전부 KEL 팀으로 나와요.</p>` : ''}
+      ${teamGroups().map(([label, list]) => html`<h3 style="margin: 4px 0 0">${label} <span class="muted" style="font-size: 13px">${list.length}팀</span></h3>
       <div style="display: grid; gap: 10px">
-        ${teams.map((t) => html`<form data-team="${t.id}" class="rogue-team ${t.active ? '' : 'off'}">
+        ${list.map((t) => html`<form data-team="${t.id}" class="rogue-team ${t.active ? '' : 'off'}">
           <span class="rogue-logo">${imgSrc(t.logo_url) ? html`<img src="${imgSrc(t.logo_url)}" alt="${t.name} 로고">` : html`<span aria-hidden="true">${t.name.slice(0, 2)}</span>`}</span>
           <span style="display: grid; gap: 6px; min-width: 0">
             <span class="flex" style="gap: 8px; flex-wrap: nowrap">
               <input name="name" value="${t.name}" aria-label="팀 이름" maxlength="40" required style="flex: 2 1 160px; min-width: 0; font-weight: 800">
               <input name="region" value="${t.region}" aria-label="지역" placeholder="지역" maxlength="10" style="flex: 0 1 80px; min-width: 0">
+              ${'league' in t ? leagueSelect(t.league) : ''}
               <input name="sort" type="number" value="${t.sort}" aria-label="순서" title="순서" style="width: 64px; font-family: var(--num)">
             </span>
             <span class="rogue-members">${[0, 1, 2].map((i) => memberSelect(t.id, i, Number(t.members?.[i]) || 0))}</span>
@@ -104,9 +116,10 @@ startAdmin('rogue', async (main) => {
             <button class="btn sm ghost danger" type="button" data-del-team>지우기</button>
           </span>
         </form>`)}
-      </div>
+      </div>`)}
       <form class="flex" data-new-team style="gap: 8px">
         <input name="name" placeholder="새 팀 이름" maxlength="40" aria-label="새 팀 이름" style="flex: 1 1 200px">
+        ${hasLeague() ? leagueSelect('masters') : ''}
         <button class="btn sm" type="submit">팀 추가</button>
       </form>
     </section>`;
@@ -126,10 +139,11 @@ startAdmin('rogue', async (main) => {
       <p class="muted" style="margin: 0; font-size: 13px; font-weight: 600">숨기면 랭킹에서 빠지고 기록은 남아요. 지우기는 테스트 기록을 정리할 때만 써요.</p>
       <label class="field" style="max-width: 320px"><span class="sr-only">닉네임 검색</span><input type="search" data-sq value="${state.scoreQ}" placeholder="닉네임 검색"></label>
       ${state.scores === null ? html`<p class="loading">불러오는 중…</p>`
-        : rows.length ? html`<div class="table-wrap"><table class="data" style="min-width: 720px"><thead><tr><th>올린 때</th><th>닉네임</th><th class="r">웨이브</th><th class="r">시간</th><th>파티</th><th>버전</th><th>상태</th><th></th></tr></thead><tbody>
+        : rows.length ? html`<div class="table-wrap"><table class="data" style="min-width: 720px"><thead><tr><th>올린 때</th><th>닉네임</th><th>티어</th><th class="r">웨이브</th><th class="r">시간</th><th>파티</th><th>버전</th><th>상태</th><th></th></tr></thead><tbody>
           ${rows.map((r) => html`<tr style="${r.hidden ? 'opacity: 0.6' : ''}">
             <td style="white-space: nowrap; font-size: 13px">${dateTimeShort(r.created_at)}</td>
             <td><b>${r.nickname}</b></td>
+            <td style="white-space: nowrap">${rogueTierName(r.tier)}</td>
             <td class="r"><span class="num">${r.wave}</span>${r.cleared ? html` <span class="chip ok" style="padding: 0 8px">클리어</span>` : ''}</td>
             <td class="r"><span class="num">${playTime(r.seconds)}</span></td>
             <td style="font-size: 13px">${(r.party || []).map((c) => nameOf.get(Number(c)) || '#' + c).join(' · ')}</td>
@@ -231,7 +245,8 @@ startAdmin('rogue', async (main) => {
     if (logo && !safeUrl(logo)) throw new Error('로고 주소는 https:// 로 시작해야 해요');
     const name = String(fd.get('name') || '').trim();
     if (!name) throw new Error('팀 이름을 적어 주세요');
-    return { name, region: String(fd.get('region') || '').trim(), sort: Number(fd.get('sort')) || 0, members, active: fd.get('active') === 'on', ...(logo ? { logo_url: logo } : {}) };
+    const league = fd.get('league');
+    return { name, region: String(fd.get('region') || '').trim(), sort: Number(fd.get('sort')) || 0, members, active: fd.get('active') === 'on', ...(logo ? { logo_url: logo } : {}), ...(league ? { league: league === 'masters' ? 'masters' : 'kel' } : {}) };
   };
 
   // ── 이벤트
@@ -294,10 +309,12 @@ startAdmin('rogue', async (main) => {
   });
   on(main, 'submit', '[data-new-team]', async (e, form) => {
     e.preventDefault();
-    const name = String(new FormData(form).get('name') || '').trim();
+    const fd = new FormData(form);
+    const name = String(fd.get('name') || '').trim();
     if (!name) return;
+    const league = fd.get('league');
     try {
-      const [row] = await insert('rogue_teams', { name, sort: Math.max(0, ...teams.map((t) => t.sort)) + 1, members: [], region: '', logo_url: '', active: true });
+      const [row] = await insert('rogue_teams', { name, sort: Math.max(0, ...teams.map((t) => t.sort)) + 1, members: [], region: '', logo_url: '', active: true, ...(league ? { league: league === 'masters' ? 'masters' : 'kel' } : {}) });
       teams.push({ id: row.id, region: '', logo_url: '', members: [], active: true, ...row });
       toast(`${name} 팀을 추가했어요.`); draw();
     } catch (err) { toast('추가하지 못했어요: ' + errorText(err), true); }

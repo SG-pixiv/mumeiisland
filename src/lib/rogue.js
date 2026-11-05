@@ -1,10 +1,17 @@
-// 블서로그 (무명섬 13단계): 설정 · 랭킹 · 소식 · 피드백 · KEL 팀
+// 블서로그 (무명섬 13 · 14단계): 설정 · 랭킹 · 소식 · 피드백 · 팀 (KEL · 마스터즈) · 티어
 import { select, rpc } from './db.js';
 
 export const ROGUE_DEFAULTS = {
   live: false, scores_open: true, feedback_open: true, game_url: '', versions: [],
   max_wave: 50, min_sec_per_wave: 15, max_party: 3, cap_nickname: 5, cap_ip: 20, banned_words: []
 };
+
+/** 블서로그 티어 (14단계). 0 아이언 ~ 9 이터니티 */
+export const ROGUE_TIERS = ['아이언', '브론즈', '실버', '골드', '플래티넘', '다이아몬드', '메테오라이트', '미스릴', '데미갓', '이터니티'];
+export const rogueTierName = (t) => ROGUE_TIERS[Math.max(0, Math.min(9, Number(t) || 0))];
+
+/** 팀 리그 (14단계): 게임 1~20웨이브는 마스터즈 팀, 21웨이브부터 KEL 팀 */
+export const ROGUE_LEAGUES = [['kel', 'KEL'], ['masters', '마스터즈']];
 
 export const FEEDBACK_KINDS = [
   ['bug', '버그'], ['idea', '아이디어'], ['balance', '밸런스'], ['etc', '그 밖에']
