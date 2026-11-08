@@ -7,12 +7,14 @@ import { loadConfig } from './config.js';
 import { createService } from './service.js';
 import { createRouter, EPHEMERAL } from './router.js';
 import { fileStore, channelsOf } from './store.js';
+import { compactArg, dbHint, isNetworkError } from './errors.js';
 
 const cfg = loadConfig();
 const time = () => new Date().toLocaleTimeString('en-GB', { timeZone: 'Asia/Seoul' });
+// 오류 페이지(HTML)가 통째로 찍히지 않게 줄여서 남겨요
 const log = {
-  info: (...a) => console.log(`[${time()}]`, ...a),
-  warn: (...a) => console.warn(`[${time()}]`, ...a)
+  info: (...a) => console.log(`[${time()}]`, ...a.map(compactArg)),
+  warn: (...a) => console.warn(`[${time()}]`, ...a.map(compactArg))
 };
 
 const db = createClient(cfg.supabaseUrl, cfg.supabaseKey, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -71,16 +73,24 @@ const onReady = async (c) => {
     if (error) throw error;
     log.info(`무명섬 DB 연결 OK (선수 ${count}명)`);
   } catch (e) {
-    log.warn(`무명섬 DB 에 연결하지 못했어요. SUPABASE_URL · SUPABASE_SECRET_KEY 를 확인해 주세요: ${e?.message ?? e}`);
+    log.warn(`무명섬 DB 에 연결하지 못했어요: ${e?.message ?? e} → ${dbHint(e, 'SUPABASE_URL · SUPABASE_SECRET_KEY 를 확인해 주세요')}`);
   }
   // 웹에서 참가자를 바꿔도 공지 인원이 맞게 몇 분마다 다시 그리고, 대시보드에 "켜짐" 신호를 남겨요
+  // 신호가 안 가면 처음 한 번 + 30분마다 한 번만 알리고, 다시 되면 몇 분 동안 끊겼는지 남겨요
+  let downSince = 0;
+  let lastWarn = 0;
   const beat = () => db.from('bot_status').upsert({ id: 1, bot_tag: c.user.tag, guild_id: cfg.guildId, last_seen_at: new Date().toISOString() })
     .then(({ error }) => {
-      if (!error) return;
-      const hint = /row-level security/i.test(error.message)
-        ? 'SUPABASE_SECRET_KEY 가 비밀 키(sb_secret_...)가 아니에요. 지금 키로는 참가 신청 · 투표가 막혀요'
-        : '6단계 SQL 을 실행했는지 확인해 주세요';
-      log.warn(`[신호] ${error.message} → ${hint}`);
+      const now = Date.now();
+      if (!error) {
+        if (downSince) log.info(`[신호] 무명섬 DB 에 다시 연결됐어요 (약 ${Math.max(1, Math.round((now - downSince) / 60_000))}분 동안 끊겼어요)`);
+        downSince = 0;
+        return;
+      }
+      if (!downSince) downSince = now;
+      if (now - lastWarn < 30 * 60_000 && lastWarn >= downSince) return;
+      lastWarn = now;
+      log.warn(`[신호] ${error.message} → ${dbHint(error)}${isNetworkError(error) ? ' · 길어지면 대시보드에는 봇이 "꺼짐"으로 보여요' : ''}`);
     });
   const roles = () => router.syncTierRole().then((r) => { if (r.added || r.removed) log.info(`[1티어 역할] ${r.added}명에게 주고 ${r.removed}명에게서 뺐어요`); });
   const tick = () => Promise.all([router.refreshAll(), beat(), roles()]).catch((e) => log.warn(`[갱신] ${e?.message ?? e}`));
@@ -119,7 +129,11 @@ const onInteraction = async (i) => {
   try {
     await router.handle(i);
   } catch (e) {
-    log.warn(`[처리 실패] ${i.isChatInputCommand?.() ? '/' + i.commandName : i.customId ?? i.type}: ${e?.stack ?? e}`);
+    const what = i.isChatInputCommand?.() ? '/' + i.commandName : i.customId ?? i.type;
+    // 10062 = 디스코드가 기다리는 3초 안에 대답을 못 했어요 (누른 사람 화면엔 "애플리케이션이 응답하지 않았습니다")
+    if (e?.code === 10062) return log.warn(`[처리 실패] ${what}: 3초 안에 대답하지 못했어요. 서버가 느리거나 인터넷이 불안정했어요`);
+    if (isNetworkError(e)) log.warn(`[처리 실패] ${what}: ${e?.message ?? e} → 서버 인터넷 연결을 확인해 주세요`);
+    else log.warn(`[처리 실패] ${what}: ${e?.stack ?? e}`);
     const msg = e?.code === 50013 ? '봇에게 이 채널에 글을 쓸 권한이 없어요. 채널 권한을 확인해 주세요.' : `처리하다가 문제가 생겼어요: ${e?.message ?? e}`;
     try {
       if (i.isAutocomplete?.()) return;
