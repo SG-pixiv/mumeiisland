@@ -10,7 +10,7 @@ const fs = require('fs');
 const T = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const E = (n) => `00000000-0000-4000-9000-${String(n).padStart(12, '0')}`;
 const PAGES = [
-  '/', '/players', `/player?id=${T(1)}`, `/player?id=${T(13)}`, '/matches', `/match?id=${E(1)}`, `/match?id=${E(2)}`,
+  '/', '/players', `/players?event=${E(4)}`, '/players?event=next', `/player?id=${T(1)}`, `/player?id=${T(13)}`, '/matches', `/match?id=${E(1)}`, `/match?id=${E(2)}`,
   '/hall', '/records', '/schedule', '/draft', `/draft?id=${E(3)}`, '/rules', '/?preview=1', '/hall?preview=1',
   '/overlay/live', '/overlay/standings', '/overlay/result', `/overlay/standings?event=${E(2)}`,
   '/admin', '/admin/players', '/admin/tiers', '/admin/teams', '/admin/review', '/admin/schedule', '/admin/scoring',

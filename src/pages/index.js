@@ -14,8 +14,9 @@ startPublic('home', async (main, { vis }) => {
   const { byId } = data;
   const list = (data.list || []).filter((p) => p.active);
   const next = nextEvent(events);
-  const parts = next ? await select('event_participants', { eq: { event_id: next.id } }) : [];
-  const partPlayers = parts.map((p) => byId.get(p.player_id)).filter(Boolean);
+  const parts = next ? await select('event_participants', { eq: { event_id: next.id }, columns: 'player_id, slot_tier' }) : [];
+  // 이번 내전 자리(이번만 티어)로 세요 (디스코드 공지 · 참가 명단과 같게)
+  const partPlayers = parts.map((p) => { const pl = byId.get(p.player_id); return pl && { ...pl, tier: p.slot_tier || pl.tier }; }).filter(Boolean);
   const live = list.filter((p) => p.isLive);
   const results = vis.any ? data.results : [];
   const records = vis.any ? data.records : new Map();
@@ -35,7 +36,7 @@ startPublic('home', async (main, { vis }) => {
           <p style="margin: 0; font-weight: 600">생존자 여러분, 다음 내전까지 얼마 안 남았어요! 참가 명단이랑 팀 편성 미리 확인해 두세요.</p>
           <div class="flex" id="countdown" aria-label="남은 시간"></div>
           <div class="flex" style="gap: 12px; margin-top: 6px">
-            <a class="btn big" href="/players">참가 명단 보기</a>
+            <a class="btn big" href="/players?event=${next.id}">참가 명단 보기</a>
             <a class="btn big sky" href="/schedule">전체 일정</a>
             <a class="btn big" href="/draft">팀 편성 보기</a>
           </div>

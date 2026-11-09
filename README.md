@@ -310,7 +310,7 @@ Supabase 무료 플랜은 한 달에 받는 양(egress)이 5GB 라서, 화면에
 화면이 바뀌지 않았는지 확인하는 순서 (`scripts/qa`):
 1. 고치기 전에 `npm run build` → `npx vite preview --port 4179` → `node scripts/qa/snap.cjs before`
 2. 고친 뒤 다시 build · preview → `node scripts/qa/snap.cjs after`
-3. `node scripts/qa/diff.cjs before after` → "모든 페이지가 같아요" 가 나와야 해요 (공개 · 관리자 · 오버레이 · 블서로그 36쪽, 10초 갱신 뒤까지 비교)
+3. `node scripts/qa/diff.cjs before after` → "모든 페이지가 같아요" 가 나와야 해요 (공개 · 관리자 · 오버레이 · 블서로그 38쪽, 10초 갱신 뒤까지 비교)
 - 예시 모드의 `select` 는 `columns` 로 고른 칸만 돌려줘서, 칸을 빠뜨리면 화면이 달라져 바로 잡혀요
 
 ### 23. 블서로그 (13 · 14단계)
